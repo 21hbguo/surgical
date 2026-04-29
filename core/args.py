@@ -23,11 +23,7 @@ def add_normalize_suffix(name, normalize_method):
 
 
 def _finalize_common_args(args):
-    args.way = str(getattr(args, "way", "fully")).lower()
-    if args.way == "fully" and args.exp and "/" in args.exp:
-        exp_way = args.exp.split("/", 1)[1].split("/", 1)[0].strip().lower()
-        if exp_way in get_strategy_names():
-            args.way = exp_way
+    args.way = str(args.way).lower()
     raw_exp = args.exp
     inferred_root = infer_root_path_from_exp(raw_exp)
     if not inferred_root:
@@ -56,7 +52,7 @@ def finalize_train_args(args):
     args = _finalize_common_args(args)
     args.train_result_root = resolve_runtime_path(args.result_root)
     args.snapshot_path = resolve_runtime_path(args.snapshot_path)
-    if hasattr(args, "pth") and args.pth is not None:
+    if args.pth is not None:
         args.pth = "final" if args.pth == "latest" else args.pth
     return args
 
@@ -66,7 +62,7 @@ def finalize_test_args(args):
     args.predict_result_root = resolve_runtime_path(args.result_root)
     args.train_result_root = resolve_runtime_path(args.train_result_root)
     args.snapshot_path = resolve_runtime_path(args.snapshot_path)
-    requested = getattr(args, "requested_checkpoint_type", None) or getattr(args, "pth", None) or "best"
+    requested = args.requested_checkpoint_type
     requested = "final" if requested == "latest" else requested
     args.requested_checkpoint_type = args.checkpoint_type = "final" if args.no_val else requested
     args.pth = requested
@@ -86,15 +82,8 @@ class StrategyArgumentParser(argparse.ArgumentParser):
     def _resolve_strategy_from_argv(self, args):
         probe = argparse.ArgumentParser(add_help=False)
         probe.add_argument("--way", type=str, default="fully")
-        probe.add_argument("--exp", type=str, default="endovis2017/default_exp")
         known, _ = probe.parse_known_args(args)
-        way = str(getattr(known, "way", "fully")).lower()
-        exp = getattr(known, "exp", None)
-        if way == "fully" and exp and "/" in exp:
-            exp_way = exp.split("/", 1)[1].split("/", 1)[0].strip().lower()
-            if exp_way in get_strategy_names():
-                way = exp_way
-        return way
+        return str(getattr(known, "way", "fully")).lower()
 
     def _ensure_strategy_args(self, args=None):
         if self._strategy_args_added:

@@ -114,6 +114,7 @@ class TestInMemoryAggregation(unittest.TestCase):
             task=1,
             root_path="/tmp/root",
             lr=3e-5,
+            sampling="none",
         )
         context = SimpleNamespace(model_name="t_resnet", effective_lr=3e-5)
         fold_rows = [
@@ -168,6 +169,7 @@ class TestMainOutputs(unittest.TestCase):
             labeled_num=10,
             optimizer="adam",
             lr=3e-5,
+            sampling="none",
         )
         context = SimpleNamespace(
             model_name="t_resnet",

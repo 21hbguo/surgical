@@ -39,7 +39,7 @@ class MTDepthGuiderProtoTeacherV3Strategy(BaseTrainingStrategy):
 
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
-        if int(getattr(args, "use_depth", 0) or 0) != 13:
+        if int(args.use_depth or 0) != 13:
             raise ValueError(
                 "mt_depth_guider_proto_teacher_v3 requires --use_depth 13 "
                 "(depth1c student + depth3c teacher)."
@@ -49,15 +49,15 @@ class MTDepthGuiderProtoTeacherV3Strategy(BaseTrainingStrategy):
         self.labeled_bs = int(args.labeled_bs)
         self.num_classes = int(args.num_classes)
         self.proto_weight = float(args.proto_pixel_weight)
-        self.depth_consistency_weight = float(getattr(args, "depth_consistency_weight", 0.5))
-        self.appearance_consistency_weight = float(getattr(args, "appearance_consistency_weight", 0.25))
-        self.geometry_align_weight = float(getattr(args, "geometry_align_weight", 0.10))
-        self.geometry_invariance_weight = float(getattr(args, "geometry_invariance_weight", 0.05))
-        self.mi_loss_weight = float(getattr(args, "mi_loss_weight", 0.01))
+        self.depth_consistency_weight = float(args.depth_consistency_weight)
+        self.appearance_consistency_weight = float(args.appearance_consistency_weight)
+        self.geometry_align_weight = float(args.geometry_align_weight)
+        self.geometry_invariance_weight = float(args.geometry_invariance_weight)
+        self.mi_loss_weight = float(args.mi_loss_weight)
         self.q_low = int(args.proto_entropy_q_low)
         self.q_high = int(args.proto_entropy_q_high)
         self.proto_feature_dim = int(args.proto_feature_dim)
-        self.disentangle_dim = int(getattr(args, "disentangle_dim", 128))
+        self.disentangle_dim = int(args.disentangle_dim)
         self.consistency_start_iters = int(args.consistency_start_iters)
 
         self.depth_teacher_model = self._create_branch_model(self.model)

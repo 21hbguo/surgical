@@ -65,7 +65,7 @@ def create_dataloaders(args):
         depth_channels=depth_channels,
         strategy=args.way if depth_channels else None,
         normalize_method=args.normalize,
-        sampling=getattr(args, "sampling", "interval"),
+        sampling=args.sampling,
         task=args.task,
         transform=RandomGenerator(
             resize_size=tuple(args.resize_size),
@@ -94,7 +94,7 @@ def create_dataloaders(args):
             depth_channels=depth_channels,
             strategy=args.way if depth_channels else None,
             normalize_method=args.normalize,
-            sampling=getattr(args, "sampling", "interval"),
+            sampling=args.sampling,
             task=args.task,
             transform=RandomGenerator(
                 resize_size=tuple(args.resize_size),
@@ -113,9 +113,9 @@ def create_dataloaders(args):
         torch.cuda.manual_seed_all(seed)
 
     actual_labeled_slice = debug_labeled_slice if args.debug else labeled_slice
-    sampling = getattr(args, "sampling", "interval")
+    sampling = args.sampling
     count = max(0, min(len(train_dataset), int(actual_labeled_slice)))
-    if count == 0 and float(getattr(args, "labeled_num", 0) or 0) > 0 and len(train_dataset) > 0:
+    if count == 0 and float(args.labeled_num) > 0 and len(train_dataset) > 0:
         count = 1
     if count == 0:
         labeled_indices = []
@@ -323,7 +323,7 @@ class Trainer:
         return epoch_loss / num_batches if num_batches > 0 else 0.0
 
     def _is_depth_pretrain_strategy(self):
-        return str(getattr(self.args, "way", "")).lower() == "fully_depth_pretrain_v1"
+        return str(self.args.way).lower() == "fully_depth_pretrain_v1"
 
     def _process_batch(self, batch_data):
         for key, value in batch_data.items():

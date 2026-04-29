@@ -50,13 +50,13 @@ def existing_train_checkpoints(snapshot_path, no_val):
 
 def build_test_run_context(args):
     return TestRunContext(
-        model_name=get_model_name(args.model, args.filter_num, args.use_depth, args.strong, args.pretrain, include_filter_num=False, way=getattr(args, "way", None)),
+        model_name=get_model_name(args.model, args.filter_num, args.use_depth, args.strong, args.pretrain, include_filter_num=False, way=args.way),
         effective_lr=args.lr,
         checkpoint_type=args.checkpoint_type,
         parent_snapshot_path=build_run_output_dir(args, mode="train"),
         parent_output_path=build_run_output_dir(args, mode="test"),
         dataset_result_path=os.path.join(
             args.predict_result_root,
-            get_dataset_result_dir_name(args.exp, args.root_path, args.task, sampling=getattr(args, "sampling", None)),
+            get_dataset_result_dir_name(args.exp, args.root_path, args.task, sampling=args.sampling),
         ),
     )

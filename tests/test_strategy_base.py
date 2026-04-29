@@ -60,6 +60,10 @@ class StrategyBaseTest(unittest.TestCase):
             consistency_rampup=150,
             consistency_rampup_div=200,
             way="mt",
+            rgb_masking_ratio=0.75,
+            depth_pretrain_mask_ratio=0.75,
+            depth_l1_weight=1.0,
+            depth_loss_weight=1.0,
         )
         self.model = TinyModel()
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.1)

@@ -130,8 +130,8 @@ def get_model_name(model_type, filter_num, use_depth=False, strong=None, pretrai
 
 
 def build_shared_run_rel_dir(args, fold=None):
-    scoped_exp = build_task_scoped_exp_name(args.exp, args.task, sampling=getattr(args, "sampling", None))
-    model_name = get_model_name(args.model, args.filter_num, args.use_depth, args.strong, args.pretrain, include_filter_num=False, way=getattr(args, "way", None))
+    scoped_exp = build_task_scoped_exp_name(args.exp, args.task, sampling=args.sampling)
+    model_name = get_model_name(args.model, args.filter_num, args.use_depth, args.strong, args.pretrain, include_filter_num=False, way=args.way)
     run_name = f"{get_labeled_num_str(args.labeled_num)}_labeled_lr{format_lr(args.lr)}_{model_name}"
     parts = [scoped_exp, run_name]
     effective_fold = args.fold if fold is None else fold
@@ -142,7 +142,7 @@ def build_shared_run_rel_dir(args, fold=None):
 
 def build_run_output_dir(args, mode, fold=None, root_override=None, cwd=None):
     attr_name = "train_result_root" if mode == "train" else "predict_result_root"
-    raw_root = root_override if root_override is not None else getattr(args, attr_name, None)
+    raw_root = root_override if root_override is not None else getattr(args, attr_name)
     return os.path.join(
         resolve_runtime_path(raw_root, cwd=cwd),
         build_shared_run_rel_dir(args, fold=fold),

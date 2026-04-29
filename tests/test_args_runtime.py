@@ -95,6 +95,15 @@ class ArgsRuntimeTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             build_train_parser().parse_args(["--task", "1", "--way", "fully", "--proto_feature_dim", "128"])
 
+    def test_exp_name_does_not_infer_strategy(self):
+        args = build_train_parser().parse_args(["--task", "1", "--exp", "toy/proto"])
+        with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
+            finalized = finalize_train_args(args)
+        self.assertEqual(finalized.way, "fully")
+        self.assertEqual(finalized.model, "resnet")
+        with self.assertRaises(SystemExit):
+            build_train_parser().parse_args(["--task", "1", "--exp", "toy/proto", "--proto_feature_dim", "128"])
+
     def test_test_parser_defaults_labeled_num_to_ten_percent(self):
         args = build_test_parser().parse_args(["--task", "1"])
         self.assertEqual(args.labeled_num, 10)

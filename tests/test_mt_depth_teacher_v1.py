@@ -25,7 +25,7 @@ class MTDepthTeacherV1StrategyTest(unittest.TestCase):
             strong="s",
             labeled_bs=2,
             num_classes=2,
-            use_depth=None,
+            use_depth=3,
             ema_decay=0.99,
             consistency_rampup=150,
             consistency_rampup_div=200,
@@ -44,6 +44,7 @@ class MTDepthTeacherV1StrategyTest(unittest.TestCase):
     def test_compute_loss_returns_depth_teacher_terms(self):
         batch = {
             "image": torch.randn(4, 1, 32, 32),
+            "depth3": torch.randn(4, 1, 32, 32),
             "label": torch.randint(0, 2, (4, 32, 32)),
         }
 

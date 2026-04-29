@@ -62,7 +62,7 @@ class RuntimePathsTest(unittest.TestCase):
         rel_dir = build_shared_run_rel_dir(args)
         self.assertEqual(
             rel_dir,
-            os.path.join("toy_255_Samplingnone", "task1", "MT", "10_labeled_lr1e-4_t_resnet"),
+            os.path.join("toy_255_Samplingnone", "task1", "MT", "10_labeled_lr1e-4_s_resnet"),
         )
         train_dir = build_run_output_dir(args, mode="train")
         test_dir = build_run_output_dir(args, mode="test")

@@ -30,7 +30,7 @@ class BaseTrainingStrategy:
         depth_key = "depth3" if int(self.use_depth) == 3 else "depth1"
         depth_tensor = batch_data.get(depth_key)
         if depth_tensor is None:
-            return None
+            raise KeyError(f"use_depth={self.use_depth} requires batch_data['{depth_key}']")
         return depth_tensor.to(self.device)
 
     def compute_loss(self, batch_data, iter_num=0, epoch=0):

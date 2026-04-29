@@ -28,9 +28,9 @@ class FullyDepthPretrainStrategy(BaseTrainingStrategy):
 
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
-        self.mask_ratio = float(getattr(args, "depth_pretrain_mask_ratio", 0.75))
-        self.l1_weight = float(getattr(args, "depth_l1_weight", 1.0))
-        self.mse_weight = float(getattr(args, "depth_loss_weight", 1.0))
+        self.mask_ratio = float(args.depth_pretrain_mask_ratio)
+        self.l1_weight = float(args.depth_l1_weight)
+        self.mse_weight = float(args.depth_loss_weight)
         self.vis_root = Path(__file__).resolve().parents[1] / "outputs"
 
     def _build_random_mask(self, depth):

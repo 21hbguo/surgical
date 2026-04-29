@@ -180,14 +180,14 @@ def prepare_visual_output_dirs(args, fold, logger):
     feat_output_dir = None
     output_root = None
 
-    if getattr(args, "rgb", 0) or getattr(args, "feat_vis", 0):
+    if args.rgb or args.feat_vis:
         output_root = build_run_output_dir(args, mode="test", fold=fold)
 
-    if getattr(args, "rgb", 0):
+    if args.rgb:
         rgb_output_dir = os.path.join(output_root, "rgb")
         os.makedirs(rgb_output_dir, exist_ok=True)
 
-    if getattr(args, "feat_vis", 0):
+    if args.feat_vis:
         feat_output_dir = os.path.join(output_root, "feature_gradcam")
         os.makedirs(feat_output_dir, exist_ok=True)
         logger.info(

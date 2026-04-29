@@ -118,8 +118,8 @@ def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
         volume = sample_batch["image"].to(device)
         if strategy is not None and hasattr(strategy, "_get_depth_tensor"):
             depth_tensor = strategy._get_depth_tensor(sample_batch)
-        elif int(getattr(args, "use_depth", 0) or 0):
-            depth_key = "depth3" if int(getattr(args, "use_depth", 0) or 0) == 3 else "depth1"
+        elif int(args.use_depth or 0):
+            depth_key = "depth3" if int(args.use_depth or 0) == 3 else "depth1"
             raw_depth = sample_batch.get(depth_key)
             depth_tensor = raw_depth.to(device) if raw_depth is not None else None
         else:
@@ -161,7 +161,7 @@ def _compute_gradcam_heatmap(args, model, strategy, sample_batch, device, hook_m
         return None
     num_classes = int(logits.shape[1])
     if target_class is None:
-        requested_class = int(getattr(args, "feat_vis_target_class", -1))
+        requested_class = int(args.feat_vis_target_class)
         if 0 <= requested_class < num_classes:
             target_class = requested_class
         elif num_classes == 1:
@@ -306,20 +306,20 @@ def inference(
         strategy.eval()
     all_metrics = []
     gradcam_hooks = None
-    if getattr(args, "feat_vis", 0):
+    if args.feat_vis:
         target_model = getattr(strategy, "model", None) if strategy is not None else model
         if target_model is None:
             target_model = model
         gradcam_hooks = GradCAMHookManager(
             target_model,
-            layer_filter=getattr(args, "feat_vis_layer", ""),
-            all_layers=bool(getattr(args, "feat_vis_all_layers", 1)),
-            max_layers=int(getattr(args, "feat_vis_max_layers", 0)),
+            layer_filter=args.feat_vis_layer,
+            all_layers=bool(args.feat_vis_all_layers),
+            max_layers=int(args.feat_vis_max_layers),
         )
         if not gradcam_hooks.layer_names:
             logger.warning("Grad-CAM found no Conv2d layers. Feature visualization will be skipped.")
     saved_feat_cases = 0
-    max_feat_cases = max(0, int(getattr(args, "feat_vis_max_cases", 0)))
+    max_feat_cases = max(0, int(args.feat_vis_max_cases))
     pbar = tqdm(test_loader, desc='Inference')
     for batch_idx, batch in enumerate(pbar):
         if batch_idx == 0:
@@ -341,9 +341,9 @@ def inference(
             label_np = label_value.cpu().numpy() if torch.is_tensor(label_value) else np.asarray(label_value)
             outputs = _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
             pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze().cpu().numpy()
-            if getattr(args, 'rgb', 0) and rgb_output_dir is not None and original_images[index] is not None:
+            if args.rgb and rgb_output_dir is not None and original_images[index] is not None:
                 label_vis_np = label_np
-                if getattr(args, 'rgb', 0) == 2:
+                if args.rgb == 2:
                     label_vis_np = _resize_mask_to_shape(label_np, pred.shape)
                 save_test_rgb_visualization(
                     image=original_images[index],
@@ -356,7 +356,7 @@ def inference(
                 )
 
             can_save_feat = (
-                getattr(args, "feat_vis", 0)
+                args.feat_vis
                 and feat_output_dir is not None
                 and original_images[index] is not None
                 and saved_feat_cases < max_feat_cases
@@ -382,7 +382,7 @@ def inference(
                         class_heats=class_heats,
                         output_dir=feat_output_dir,
                         case_name=case,
-                        alpha=float(getattr(args, "feat_vis_alpha", 0.45)),
+                        alpha=float(args.feat_vis_alpha),
                     )
                     saved_feat_cases += 1
 

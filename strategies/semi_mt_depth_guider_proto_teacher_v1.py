@@ -27,7 +27,7 @@ class MTDepthGuiderProtoTeacherV1Strategy(BaseTrainingStrategy):
 
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
-        if int(getattr(args, "use_depth", 0) or 0) not in (1, 13):
+        if int(args.use_depth or 0) not in (1, 13):
             raise ValueError(
                 "mt_depth_guider_proto_teacher_v1 requires --use_depth 1 or 13 (depth1c guider input)."
             )

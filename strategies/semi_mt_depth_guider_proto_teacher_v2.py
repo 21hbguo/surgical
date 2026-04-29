@@ -34,7 +34,7 @@ class MTDepthGuiderProtoTeacherV2Strategy(BaseTrainingStrategy):
 
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
-        if int(getattr(args, "use_depth", 0) or 0) != 13:
+        if int(args.use_depth or 0) != 13:
             raise ValueError(
                 "mt_depth_guider_proto_teacher_v2 requires --use_depth 13 "
                 "(depth1c student + depth3c teacher)."
@@ -44,7 +44,7 @@ class MTDepthGuiderProtoTeacherV2Strategy(BaseTrainingStrategy):
         self.labeled_bs = int(args.labeled_bs)
         self.num_classes = int(args.num_classes)
         self.proto_weight = float(args.proto_pixel_weight)
-        self.depth_consistency_weight = float(getattr(args, "depth_consistency_weight", 0.5))
+        self.depth_consistency_weight = float(args.depth_consistency_weight)
         self.q_low = int(args.proto_entropy_q_low)
         self.q_high = int(args.proto_entropy_q_high)
         self.proto_feature_dim = int(args.proto_feature_dim)

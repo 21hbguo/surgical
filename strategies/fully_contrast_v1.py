@@ -34,11 +34,11 @@ class FullyContrastV1Strategy(BaseTrainingStrategy):
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
         self.num_classes = int(args.num_classes)
-        self.contrast_weight = float(getattr(args, "contrast_loss_weight", 0.05))
-        self.temperature = float(getattr(args, "contrast_temperature", 0.1))
-        self.boundary_width = max(int(getattr(args, "contrast_boundary_width", 1)), 0)
-        self.min_pixels = int(getattr(args, "contrast_min_pixels", 8))
-        self.max_samples = int(getattr(args, "contrast_max_samples", 64))
+        self.contrast_weight = float(args.contrast_loss_weight)
+        self.temperature = float(args.contrast_temperature)
+        self.boundary_width = max(int(args.contrast_boundary_width), 0)
+        self.min_pixels = int(args.contrast_min_pixels)
+        self.max_samples = int(args.contrast_max_samples)
         self.eps = 1e-6
 
     def _build_class_assignment(self, labels, target_size):

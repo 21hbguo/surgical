@@ -27,7 +27,7 @@ class FullyRGBMaskingDepthV1Strategy(BaseTrainingStrategy):
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
         repo_root = Path(__file__).resolve().parents[1]
-        self.mask_ratio = float(getattr(args, "rgb_masking_ratio", 0.75))
+        self.mask_ratio = float(args.rgb_masking_ratio)
         self.vis_path = repo_root / "outputs" / "fully_rgb_masking_depth_v1_complementary.png"
 
     def _build_random_mask(self, rgb):

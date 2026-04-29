@@ -70,7 +70,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertEqual(args.in_chns, 4)
 
     def test_resolve_input_channel_settings_shares_depth_rules(self):
-        resolved = resolve_strategy_input_settings(way=None, root_path=self.root_path, task=1, use_depth=13)
+        resolved = resolve_strategy_input_settings(way="fully", root_path=self.root_path, task=1, use_depth=13)
         self.assertEqual(resolved["metadata_in_chns"], 3)
         self.assertEqual(resolved["use_depth"], 13)
         self.assertEqual(resolved["in_chns"], 4)
@@ -179,6 +179,8 @@ class TaskDatasetSelectionTest(unittest.TestCase):
                 "2",
                 "--exp",
                 "endovis2018Binary8/MT",
+                "--way",
+                "mt",
                 "--labeled_num",
                 "40",
                 "--normalize",
@@ -197,7 +199,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             os.path.join("/home/guo/project/ssl4mis/result_predict", "endovis2018Binary8_imagenet_Samplinginterval"),
         )
         self.assertIn(
-            os.path.join("endovis2018Binary8_imagenet_Samplinginterval", "task2", "MT", "40_labeled_lr1e-4_t_resnet"),
+            os.path.join("endovis2018Binary8_imagenet_Samplinginterval", "task2", "MT", "40_labeled_lr1e-4_s_resnet"),
             context.parent_snapshot_path,
         )
 
@@ -245,7 +247,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
 
         self.assertEqual(
             row["Experiment"],
-            "MT_t_resnet_10.0_4_adam_3.0e-05_task1",
+            "MT_s_resnet_10.0_4_adam_3.0e-05_task1",
         )
         self.assertNotIn("Model", row)
         self.assertNotIn("Labeled_Ratio", row)
@@ -264,7 +266,9 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertFalse(hasattr(args, "STRATEGY"))
         self.assertEqual(args.consistency, 0.1)
         self.assertEqual(args.ema_decay, 0.99)
-        self.assertEqual(args.proto_feature_dim, 256)
+        self.assertFalse(hasattr(args, "proto_feature_dim"))
+        proto_args = build_train_parser().parse_args(["--task", "1", "--way", "proto"])
+        self.assertEqual(proto_args.proto_feature_dim, 256)
         self.assertEqual(semi_uncertainty_mt.DEFAULT_T_SAMPLES, 8)
         self.assertEqual(semi_dycon.DEFAULT_BETA_MIN, 0.5)
         self.assertEqual(semi_dycon.DEFAULT_FEATURE_SCALER, 2)
@@ -693,7 +697,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertEqual(loaded.shape, (4, 8, 3))
 
     def test_inference_rgb_mode1_exports_overlay_into_rgb_dir(self):
-        args = build_test_parser().parse_args(
+        args = test_core.build_test_feature_parser().parse_args(
             [
                 "--task",
                 "1",
@@ -734,7 +738,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(rgb_dir, "case_rgb.png")))
 
     def test_inference_uses_strategy_validation_step_for_depth_batches(self):
-        args = build_test_parser().parse_args(
+        args = test_core.build_test_feature_parser().parse_args(
             [
                 "--task",
                 "1",

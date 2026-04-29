@@ -83,7 +83,7 @@ def build_summary_row(args, summary, fold_label, train_best_dice=None, total_sam
         args.strong,
         args.pretrain,
         include_filter_num=False,
-        way=getattr(args, "way", None),
+        way=args.way,
     )
     per_class_metrics = []
     for cls in range(1, args.num_classes):
@@ -175,7 +175,7 @@ def build_result_export_rows(args, context, fold_rows, seq_rows, train_best_by_f
         args.exp,
         args.root_path,
         args.task,
-        sampling=getattr(args, "sampling", None),
+        sampling=args.sampling,
     )
     experiment_name = build_export_experiment_name(
         args,

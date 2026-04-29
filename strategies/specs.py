@@ -130,7 +130,7 @@ def resolve_strategy_default_model_name(way, pretrain_mode):
     spec = get_strategy_spec(way)
     if spec.fixed_model_name is not None:
         return spec.fixed_model_name
-    prefix = _PRETRAIN_PREFIXES.get(pretrain_mode, _PRETRAIN_PREFIXES["none"])
+    prefix = _PRETRAIN_PREFIXES[pretrain_mode]
     suffix = spec.model_suffix or ""
     return f"{prefix}_{suffix}" if suffix else prefix
 
@@ -147,16 +147,15 @@ def _load_metadata_input_channels(root_path, task):
 
 def resolve_strategy_input_settings(way, root_path, task, use_depth=None):
     metadata_in_chns = _load_metadata_input_channels(root_path, task)
-    normalized_use_depth = use_depth if use_depth in VALID_DEPTH_CHANNELS else False
+    if use_depth is not None and use_depth not in VALID_DEPTH_CHANNELS:
+        raise ValueError(f"Invalid use_depth={use_depth!r}. Expected one of {sorted(VALID_DEPTH_CHANNELS)} or None.")
+    normalized_use_depth = use_depth
     depth_in_chns = 1 if normalized_use_depth == 13 else (normalized_use_depth or 0)
-    try:
-        spec = get_strategy_spec(way) if way else None
-    except KeyError:
-        spec = None
+    spec = get_strategy_spec(way)
 
-    if spec is not None and spec.in_chns == "metadata":
+    if spec.in_chns == "metadata":
         resolved_in_chns = metadata_in_chns
-    elif spec is None or spec.in_chns is None:
+    elif spec.in_chns is None:
         resolved_in_chns = metadata_in_chns + depth_in_chns
     else:
         resolved_in_chns = int(spec.in_chns)
