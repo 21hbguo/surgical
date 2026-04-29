@@ -1,0 +1,171 @@
+import json
+import os
+from dataclasses import dataclass
+
+from .fully_dformerv2 import DFormerv2FullyStrategy
+from .fully_contrast_v1 import FullyContrastV1Strategy
+from .fully_contrast_v1_1 import FullyContrastV11Strategy
+from .fully_depth_pretrain_v1 import FullyDepthPretrainStrategy
+from .fully_rgb_masking_depth_v1 import FullyRGBMaskingDepthV1Strategy
+from .fully_supervised import FullySupervisedStrategy
+from .fully_reg import FullyRegSupervisedStrategy
+from .fully_ternaus import TernausNet16Strategy
+from .semi_depth_guided_mt import DepthGuidedMTStrategy
+from .semi_dycon import DyConStrategy
+from .semi_mean_teacher import MeanTeacherStrategy
+from .semi_mean_teacher_contrast_v1 import MeanTeacherContrastV1Strategy
+from .semi_mean_teacher_text_v1 import MeanTeacherTextV1Strategy
+from .semi_mt_depth_guider_proto_teacher_v1 import MTDepthGuiderProtoTeacherV1Strategy
+from .semi_mt_depth_guider_proto_teacher_v2 import MTDepthGuiderProtoTeacherV2Strategy
+from .semi_mt_depth_guider_proto_teacher_v3 import MTDepthGuiderProtoTeacherV3Strategy
+from .semi_mt_depth_guider_proto_v1 import MTDepthGuiderProtoV1Strategy
+from .semi_mt_depth_guider_v1 import MTDepthGuiderV1Strategy
+from .semi_mt_depth_guider_v2 import MTDepthGuiderV2Strategy
+from .semi_mt_depth_guider_v3 import MTDepthGuiderV3Strategy
+from .semi_mt_depth_teacher_v1 import MTDepthTeacherV1Strategy
+from .semi_proto_v1 import ProtoV1Strategy
+from .semi_rdnet import RDNetStrategy
+from .semi_uncertainty_mt import UncertaintyMTStrategy
+from .semi_urpc import URPCStrategy
+from .semi_w2s import W2SStrategy
+
+
+VALID_DEPTH_CHANNELS = {1, 3, 13}
+_PRETRAIN_PREFIXES = {"none": "unet", "resnet": "resnet", "depth": "depth", "dinov3": "dinov3"}
+SPECIAL_MODEL_NAMES = {"ternaus16", "dformerv2_small"}
+PRETRAINED_UNET_PREFIXES = ("resnetunet", "dinov3unet")
+
+
+@dataclass(frozen=True)
+class StrategySpec:
+    name: str
+    cls: type
+    is_semi: bool
+    model_suffix: str | None = None
+    fixed_model_name: str | None = None
+    in_chns: int | str | None = None
+
+
+def _spec(
+    name,
+    cls,
+    *,
+    is_semi,
+    model_suffix=None,
+    fixed_model_name=None,
+    in_chns=None,
+):
+    return StrategySpec(
+        name=name,
+        cls=cls,
+        is_semi=is_semi,
+        model_suffix=model_suffix,
+        fixed_model_name=fixed_model_name,
+        in_chns=in_chns,
+    )
+
+
+STRATEGY_SPECS = {
+    "fully": _spec("fully", FullySupervisedStrategy, is_semi=False, model_suffix=""),
+    "fully_reg": _spec("fully_reg", FullyRegSupervisedStrategy, is_semi=False, model_suffix=""),
+    "fully_rgb_masking_depth_v1": _spec("fully_rgb_masking_depth_v1", FullyRGBMaskingDepthV1Strategy, is_semi=False, model_suffix="", in_chns="metadata"),
+    "fully_depth_pretrain_v1": _spec("fully_depth_pretrain_v1", FullyDepthPretrainStrategy, is_semi=False, model_suffix="depth_pretrain"),
+    "fully_depth_pretrain": _spec("fully_depth_pretrain", FullyDepthPretrainStrategy, is_semi=False, model_suffix="depth_pretrain"),
+    "fully_contrast_v1": _spec("fully_contrast_v1", FullyContrastV1Strategy, is_semi=False, model_suffix="contrast_v1"),
+    "fully_contrast_v1_1": _spec("fully_contrast_v1_1", FullyContrastV11Strategy, is_semi=False, model_suffix="contrast_v1"),
+    "mt": _spec("mt", MeanTeacherStrategy, is_semi=True, model_suffix=""),
+    "mt_depth_teacher_v1": _spec("mt_depth_teacher_v1", MTDepthTeacherV1Strategy, is_semi=True, model_suffix="", in_chns="metadata"),
+    "mt_depth_guider_v1": _spec("mt_depth_guider_v1", MTDepthGuiderV1Strategy, is_semi=True, model_suffix="depth_guider_v1"),
+    "mt_depth_guider_v2": _spec("mt_depth_guider_v2", MTDepthGuiderV2Strategy, is_semi=True, model_suffix="depth_guider_v2"),
+    "mt_depth_guider_v3": _spec("mt_depth_guider_v3", MTDepthGuiderV3Strategy, is_semi=True, model_suffix="depth_guider_v3"),
+    "mt_depth_guider_proto_v1": _spec("mt_depth_guider_proto_v1", MTDepthGuiderProtoV1Strategy, is_semi=True, model_suffix="depth_guider_proto_v1"),
+    "mt_depth_guider_proto_teacher_v2": _spec("mt_depth_guider_proto_teacher_v2", MTDepthGuiderProtoTeacherV2Strategy, is_semi=True, model_suffix="depth_guider_proto_v1"),
+    "mt_depth_guider_proto_teacher_v3": _spec("mt_depth_guider_proto_teacher_v3", MTDepthGuiderProtoTeacherV3Strategy, is_semi=True, model_suffix="depth_guider_proto_v1"),
+    "mt_depth_guider_proto_teacher_v1": _spec("mt_depth_guider_proto_teacher_v1", MTDepthGuiderProtoTeacherV1Strategy, is_semi=True, model_suffix="depth_guider_proto_v1"),
+    "semi_mean_teacher_contrast_v1": _spec("semi_mean_teacher_contrast_v1", MeanTeacherContrastV1Strategy, is_semi=True, model_suffix="contrast_v1"),
+    "semi_mean_teacher_text_v1": _spec("semi_mean_teacher_text_v1", MeanTeacherTextV1Strategy, is_semi=True, model_suffix="proto_v1"),
+    "uamt": _spec("uamt", UncertaintyMTStrategy, is_semi=True, model_suffix=""),
+    "urpc": _spec("urpc", URPCStrategy, is_semi=True, model_suffix="urpc"),
+    "ternaus": _spec("ternaus", TernausNet16Strategy, is_semi=False, fixed_model_name="ternaus16"),
+    "proto_v1": _spec("proto_v1", ProtoV1Strategy, is_semi=True, model_suffix="proto_v1"),
+    "proto": _spec("proto", ProtoV1Strategy, is_semi=True, model_suffix="proto_v1"),
+    "dycon": _spec("dycon", DyConStrategy, is_semi=True, model_suffix="dycon"),
+    "w2s": _spec("w2s", W2SStrategy, is_semi=True, model_suffix="w2s"),
+    "depth_mt": _spec("depth_mt", DepthGuidedMTStrategy, is_semi=True, model_suffix="depth"),
+    "rdnet": _spec("rdnet", RDNetStrategy, is_semi=True, model_suffix=""),
+    "dformerv2_fully": _spec("dformerv2_fully", DFormerv2FullyStrategy, is_semi=False, fixed_model_name="dformerv2_small"),
+}
+
+STRATEGY_REGISTRY = {name: spec.cls for name, spec in STRATEGY_SPECS.items()}
+SEMI_STRATEGY_NAMES = {name for name, spec in STRATEGY_SPECS.items() if spec.is_semi}
+
+
+def _canonicalize_strategy_name(name):
+    normalized = str(name or "").strip().lower()
+    if normalized in STRATEGY_SPECS:
+        return normalized
+    basename = os.path.splitext(os.path.basename(normalized))[0]
+    if basename in STRATEGY_SPECS:
+        return basename
+    if basename.startswith("semi_") and basename[5:] in STRATEGY_SPECS:
+        return basename[5:]
+    raise KeyError(f"Unknown strategy name: {name!r}")
+
+
+def get_strategy_names():
+    return list(STRATEGY_SPECS.keys())
+
+
+def get_strategy_spec(name):
+    return STRATEGY_SPECS[_canonicalize_strategy_name(name)]
+
+
+def is_semi_strategy(name):
+    return get_strategy_spec(name).is_semi
+
+
+def resolve_strategy_default_model_name(way, pretrain_mode):
+    spec = get_strategy_spec(way)
+    if spec.fixed_model_name is not None:
+        return spec.fixed_model_name
+    prefix = _PRETRAIN_PREFIXES.get(pretrain_mode, _PRETRAIN_PREFIXES["none"])
+    suffix = spec.model_suffix or ""
+    return f"{prefix}_{suffix}" if suffix else prefix
+
+
+def _load_metadata_input_channels(root_path, task):
+    task_json = os.path.join(root_path, f"task{int(task)}.json")
+    with open(task_json, "r", encoding="utf-8") as handle:
+        info = json.load(handle)
+    value = info.get("input_channels")
+    if not isinstance(value, int) or value <= 0:
+        raise ValueError(f"Invalid input_channels in {task_json}: {value!r}")
+    return value
+
+
+def resolve_strategy_input_settings(way, root_path, task, use_depth=None):
+    metadata_in_chns = _load_metadata_input_channels(root_path, task)
+    normalized_use_depth = use_depth if use_depth in VALID_DEPTH_CHANNELS else False
+    depth_in_chns = 1 if normalized_use_depth == 13 else (normalized_use_depth or 0)
+    try:
+        spec = get_strategy_spec(way) if way else None
+    except KeyError:
+        spec = None
+
+    if spec is not None and spec.in_chns == "metadata":
+        resolved_in_chns = metadata_in_chns
+    elif spec is None or spec.in_chns is None:
+        resolved_in_chns = metadata_in_chns + depth_in_chns
+    else:
+        resolved_in_chns = int(spec.in_chns)
+
+    return {
+        "metadata_in_chns": metadata_in_chns,
+        "use_depth": normalized_use_depth,
+        "in_chns": resolved_in_chns,
+    }
+
+
+def create_strategy(name, args, model, optimizer, device):
+    strategy_cls = STRATEGY_REGISTRY[_canonicalize_strategy_name(name)]
+    return strategy_cls(args, model, optimizer, device)

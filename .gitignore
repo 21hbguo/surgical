@@ -1,0 +1,16 @@
+__pycache__/
+.pytest_cache/
+v/
+venv/
+env/
+tmp/
+temp/
+*.log
+*.tmp
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.pkl
+*.png
+*.jpg
