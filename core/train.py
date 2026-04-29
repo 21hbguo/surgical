@@ -310,7 +310,9 @@ class Trainer:
             self.lr_scheduler.step(self.iter_num)
             batch_data = self._process_batch(batch_data)
             loss_dict = self.strategy.training_step(batch_data, self.iter_num, epoch)
-            last_loss = loss_dict.get("total", 0)
+            last_loss = loss_dict.get("total", 0.0)
+            if isinstance(last_loss, torch.Tensor):
+                last_loss = float(last_loss.detach().item())
             epoch_loss += last_loss
             num_batches += 1
             self.iter_num += 1

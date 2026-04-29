@@ -25,6 +25,7 @@ from .semi_mean_teacher_contrast_v1 import MeanTeacherContrastV1Strategy
 from .semi_proto_v1 import ProtoV1Strategy
 from .semi_uncertainty_mt import UncertaintyMTStrategy
 from .semi_urpc import URPCStrategy
+from .semi_only_depthInput import OnlyDepthInputStrategy
 from .semi_w2s import W2SStrategy
 from .specs import STRATEGY_REGISTRY, create_strategy
 
@@ -56,4 +57,5 @@ __all__ = [
     "DepthGuidedMTStrategy",
     "RDNetStrategy",
     "DFormerv2FullyStrategy",
+    "OnlyDepthInputStrategy",
 ]

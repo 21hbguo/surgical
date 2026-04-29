@@ -1,0 +1,70 @@
+import torch
+from .base_strategy import BaseTrainingStrategy
+
+
+class OnlyDepthInputStrategy(BaseTrainingStrategy):
+    def __init__(self, args, model, optimizer, device):
+        super().__init__(args, model, optimizer, device)
+        self._enable_ema_support()
+        self.consistency_start_iters = int(args.consistency_start_iters)
+
+    def _make_depth_volume(self, batch_data):
+        depth_tensor = self._get_depth_tensor(batch_data)
+        if depth_tensor is None:
+            raise ValueError("Depth tensor is required for OnlyDepthInputStrategy but not found in batch_data")
+        if depth_tensor.shape[1] == 1:
+            depth_tensor = depth_tensor.expand(-1, 3, -1, -1)
+        return depth_tensor
+
+    def compute_loss(self, batch_data, iter_num=0, epoch=0):
+        volume = self._make_depth_volume(batch_data)
+        label = batch_data['label'].to(self.device)
+
+        stud_volume = self._add_noise(volume, strong_flag='s', unlabeled_only=True)
+
+        output = self.model(stud_volume)
+        if isinstance(output, tuple):
+            output = output[0]
+        output_soft = torch.softmax(output, dim=1)
+
+        unlabeled_volume = volume[self.labeled_bs:]
+
+        with torch.no_grad():
+            ema_inputs = self._add_noise(unlabeled_volume, strong_flag='t')
+            ema_output = self.ema_model(ema_inputs)
+            if isinstance(ema_output, tuple):
+                ema_output = ema_output[0]
+            ema_output_soft = torch.softmax(ema_output, dim=1)
+
+        batch_data['teacher_pred'] = ema_output_soft
+
+        loss_ce = self.ce_loss(output[:self.labeled_bs], label[:self.labeled_bs].long())
+        loss_dice = self.dice_loss(output_soft[:self.labeled_bs], label[:self.labeled_bs].unsqueeze(1))
+        supervised_loss = 0.5 * (loss_dice + loss_ce)
+
+        consistency_weight = self._get_consistency_weight(iter_num)
+        if iter_num >= self.consistency_start_iters and unlabeled_volume.shape[0] > 0:
+            consistency_loss = torch.mean((output_soft[self.labeled_bs:] - ema_output_soft) ** 2)
+        else:
+            consistency_loss = torch.tensor(0.0, device=self.device)
+        total_loss = supervised_loss + consistency_weight * consistency_loss
+
+        return {
+            'total': total_loss,
+            'ce': loss_ce,
+            'dice': loss_dice,
+            'consistency': consistency_loss,
+            'consistency_weight': consistency_weight
+        }
+
+    def training_step(self, batch_data, iter_num, epoch=0):
+        self.optimizer.zero_grad(set_to_none=True)
+        loss_dict = self.compute_loss(batch_data, iter_num, epoch)
+        self._backward_and_step(loss_dict['total'], optimizer=self.optimizer)
+        self._update_ema(iter_num)
+        return loss_dict
+
+    def validation_step(self, batch_data):
+        with torch.no_grad():
+            volume = self._make_depth_volume(batch_data)
+            return self.model(volume)

@@ -88,3 +88,6 @@ export TMPDIR
 
 ## 测试验证可不可以
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_teacher_v1 --exp endovis2017/MT_depth_teacher_v1 --labeled_num 40 --use_depth 3
+
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way only_depth_input --exp endovis2017/OnlyDepthInput --labeled_num 40 --use_depth 1
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way only_depth_input --exp endovis2017/OnlyDepthInput --labeled_num 10 --use_depth 1

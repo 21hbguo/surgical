@@ -23,6 +23,7 @@ from .semi_mt_depth_guider_v1 import MTDepthGuiderV1Strategy
 from .semi_mt_depth_guider_v2 import MTDepthGuiderV2Strategy
 from .semi_mt_depth_guider_v3 import MTDepthGuiderV3Strategy
 from .semi_mt_depth_teacher_v1 import MTDepthTeacherV1Strategy
+from .semi_only_depthInput import OnlyDepthInputStrategy
 from .semi_proto_v1 import ProtoV1Strategy
 from .semi_rdnet import RDNetStrategy
 from .semi_uncertainty_mt import UncertaintyMTStrategy
@@ -94,6 +95,7 @@ STRATEGY_SPECS = {
     "depth_mt": _spec("depth_mt", DepthGuidedMTStrategy, is_semi=True, model_suffix="depth"),
     "rdnet": _spec("rdnet", RDNetStrategy, is_semi=True, model_suffix=""),
     "dformerv2_fully": _spec("dformerv2_fully", DFormerv2FullyStrategy, is_semi=False, fixed_model_name="dformerv2_small"),
+    "only_depth_input": _spec("only_depth_input", OnlyDepthInputStrategy, is_semi=True, model_suffix="", in_chns=3),
 }
 
 STRATEGY_REGISTRY = {name: spec.cls for name, spec in STRATEGY_SPECS.items()}
