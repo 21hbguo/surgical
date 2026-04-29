@@ -11,6 +11,15 @@ from .base_strategy import BaseTrainingStrategy
 
 
 class MeanTeacherContrastV1Strategy(BaseTrainingStrategy):
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument("--contrast_feature_dim", type=int, default=256)
+        parser.add_argument("--contrast_loss_weight", type=float, default=0.05)
+        parser.add_argument("--contrast_temperature", type=float, default=0.1)
+        parser.add_argument("--contrast_boundary_width", type=int, default=1)
+        parser.add_argument("--contrast_min_pixels", type=int, default=8)
+        parser.add_argument("--contrast_max_samples", type=int, default=64)
+
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
         self.num_classes = int(args.num_classes)

@@ -20,6 +20,12 @@ from .base_strategy import BaseTrainingStrategy
 
 
 class FullyDepthPretrainStrategy(BaseTrainingStrategy):
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument("--depth_pretrain_mask_ratio", type=float, default=0.75)
+        parser.add_argument("--depth_l1_weight", type=float, default=1.0)
+        parser.add_argument("--depth_loss_weight", type=float, default=1.0)
+
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
         self.mask_ratio = float(getattr(args, "depth_pretrain_mask_ratio", 0.75))

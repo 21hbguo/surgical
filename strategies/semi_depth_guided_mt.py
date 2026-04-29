@@ -5,6 +5,16 @@ from utils.losses import DepthLoss
 # 旧的策略
 
 class DepthGuidedMTStrategy(BaseTrainingStrategy):
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument("--depth_loss_weight", type=float, default=1.0)
+        parser.add_argument("--depth_consistency_weight", type=float, default=0.5)
+        parser.add_argument("--depth_l1_weight", type=float, default=1.0)
+        parser.add_argument("--depth_gradient_weight", type=float, default=0.1)
+        parser.add_argument("--depth_smoothness_weight", type=float, default=0.01)
+        parser.add_argument("--depth_ssim_weight", type=float, default=0.5)
+        parser.add_argument("--depth_range_weight", type=float, default=0.1)
+
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
         self._enable_ema_support()

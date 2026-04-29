@@ -82,14 +82,18 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(args.filter_num, 16)
         self.assertEqual(args.consistency, 0.1)
         self.assertEqual(args.ema_decay, 0.99)
-        self.assertEqual(args.proto_feature_dim, 256)
-        self.assertEqual(args.contrast_feature_dim, 256)
-        self.assertEqual(args.contrast_loss_weight, 0.05)
-        self.assertEqual(args.contrast_temperature, 0.1)
-        self.assertEqual(args.contrast_boundary_width, 1)
-        self.assertEqual(args.contrast_min_pixels, 8)
-        self.assertEqual(args.contrast_max_samples, 64)
-        self.assertEqual(args.depth_loss_weight, 1.0)
+        self.assertFalse(hasattr(args, "proto_feature_dim"))
+        self.assertFalse(hasattr(args, "contrast_feature_dim"))
+        self.assertFalse(hasattr(args, "depth_loss_weight"))
+
+    def test_strategy_private_args_are_registered_for_selected_strategy(self):
+        args = build_train_parser().parse_args(["--task", "1", "--way", "proto", "--proto_feature_dim", "128"])
+        self.assertEqual(args.proto_feature_dim, 128)
+        self.assertFalse(hasattr(args, "contrast_loss_weight"))
+
+    def test_strategy_private_args_are_rejected_for_other_strategies(self):
+        with self.assertRaises(SystemExit):
+            build_train_parser().parse_args(["--task", "1", "--way", "fully", "--proto_feature_dim", "128"])
 
     def test_test_parser_defaults_labeled_num_to_ten_percent(self):
         args = build_test_parser().parse_args(["--task", "1"])
@@ -237,7 +241,7 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(finalized.num_classes, 2)
         self.assertEqual(finalized.num_folds, 4)
         self.assertEqual(finalized.way, "mt")
-        self.assertEqual(finalized.requested_checkpoint_type, "best")
+        self.assertEqual(finalized.requested_checkpoint_type, "final")
         self.assertEqual(finalized.checkpoint_type, "final")
         self.assertEqual(finalized.lr, 3e-5)
         self.assertFalse(hasattr(finalized, "base_lr"))
@@ -250,7 +254,12 @@ class ArgsRuntimeTest(unittest.TestCase):
         args = build_test_parser().parse_args(["--task", "1"])
         self.assertEqual(args.result_root, "../result_predict")
         self.assertEqual(args.train_result_root, "../result_train")
-        self.assertEqual(args.rgb, 0)
+        self.assertEqual(args.optimizer, "adam")
+        self.assertEqual(args.rgb, 2)
+
+    def test_test_parser_accepts_explicit_adam_optimizer(self):
+        args = build_test_parser().parse_args(["--task", "1", "--optimizer", "adam"])
+        self.assertEqual(args.optimizer, "adam")
 
     def test_test_parser_accepts_rgb_export_modes(self):
         args = build_test_parser().parse_args(["--task", "1", "--rgb", "2"])

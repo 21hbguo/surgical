@@ -20,6 +20,10 @@ from .base_strategy import BaseTrainingStrategy
 
 
 class FullyRGBMaskingDepthV1Strategy(BaseTrainingStrategy):
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument("--rgb_masking_ratio", type=float, default=0.75)
+
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
         repo_root = Path(__file__).resolve().parents[1]

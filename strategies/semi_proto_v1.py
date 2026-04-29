@@ -23,6 +23,16 @@ from .base_strategy import BaseTrainingStrategy
 
 
 class ProtoV1Strategy(BaseTrainingStrategy):
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument("--proto_feature_dim", type=int, default=256)
+        parser.add_argument("--proto_pixel_weight", type=float, default=0.05)
+        parser.add_argument("--proto_momentum", type=float, default=0.999)
+        parser.add_argument("--proto_entropy_q_low", type=int, default=20)
+        parser.add_argument("--proto_entropy_q_high", type=int, default=95)
+        parser.add_argument("--proto_entropy_temp", type=float, default=0.1)
+        parser.add_argument("--proto_entropy_num_samples", type=int, default=1024)
+
     def __init__(self, args, model, optimizer, device):
         super().__init__(args, model, optimizer, device)
         self._enable_ema_support()

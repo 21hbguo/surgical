@@ -2,7 +2,7 @@ import argparse
 import pprint
 
 from models.factory import resolve_default_model_name
-from strategies.specs import get_strategy_names, is_semi_strategy, resolve_strategy_input_settings
+from strategies.specs import add_strategy_args, get_strategy_names, is_semi_strategy, resolve_strategy_input_settings
 from utils.common import get_n_folds_from_path, get_num_classes_from_path, resolve_runtime_path
 
 
@@ -77,12 +77,47 @@ def format_args_for_logging(args):
     return pprint.pformat({"common": {k: getattr(args, k, None) for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "normalize", "device", "seed"]}, "train": {k: getattr(args, k, None) for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root"]}, "test": {k: getattr(args, k, None) for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"]}}, indent=2, width=100)
 
 
+class StrategyArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+        self._strategy_args_added = False
+
+    def _resolve_strategy_from_argv(self, args):
+        probe = argparse.ArgumentParser(add_help=False)
+        probe.add_argument("--way", type=str, default="fully")
+        probe.add_argument("--exp", type=str, default="endovis2017/default_exp")
+        known, _ = probe.parse_known_args(args)
+        way = str(getattr(known, "way", "fully")).lower()
+        exp = getattr(known, "exp", None)
+        if way == "fully" and exp and "/" in exp:
+            exp_way = exp.split("/", 1)[1].split("/", 1)[0].strip().lower()
+            if exp_way in get_strategy_names():
+                way = exp_way
+        return way
+
+    def _ensure_strategy_args(self, args=None):
+        if self._strategy_args_added:
+            return
+        way = self._resolve_strategy_from_argv(args)
+        add_strategy_args(self, way)
+        self._strategy_args_added = True
+
+    def parse_args(self, args=None, namespace=None):
+        self._ensure_strategy_args(args)
+        return super().parse_args(args, namespace)
+
+    def parse_known_args(self, args=None, namespace=None):
+        self._ensure_strategy_args(args)
+        return super().parse_known_args(args, namespace)
+
+
 def add_common_args(parser, result_root_default, test_mode=False):
-    parser.set_defaults(optimizer="adam", filter_num=16, resize_size=[224, 224], dformerv2_scales=[0.5, 0.75, 1.0, 1.25, 1.5, 1.75], seed=42, num_workers=2, resnet_variant="resnet34", pretrain="resnet", normalize="255", strong="s", load_mode="data", consistency=0.1, consistency_rampup=150, consistency_rampup_div=200, consistency_start_iters=1000, ema_decay=0.99, proto_feature_dim=256, proto_pixel_weight=0.05, proto_momentum=0.999, proto_entropy_q_low=20, proto_entropy_q_high=95, proto_entropy_temp=0.1, proto_entropy_num_samples=1024, contrast_feature_dim=256, contrast_loss_weight=0.05, contrast_temperature=0.1, contrast_boundary_width=1, contrast_min_pixels=8, contrast_max_samples=64, depth_loss_weight=1.0, depth_consistency_weight=0.5, appearance_consistency_weight=0.25, geometry_align_weight=0.10, geometry_invariance_weight=0.05, mi_loss_weight=0.01, disentangle_dim=128, depth_l1_weight=1.0, depth_gradient_weight=0.1, depth_smoothness_weight=0.01, depth_ssim_weight=0.5, depth_range_weight=0.1)
     parser.add_argument("--task", type=int, required=True, choices=[1, 2, 3], help="task id used for task{n}.json")
     parser.add_argument("--exp", type=str, default="endovis2017/default_exp", help="experiment name")
     parser.add_argument("--model", type=str, default=None, help="model type (auto from strategy if not specified)")
     parser.add_argument("--way", type=str, default="fully", choices=get_strategy_names(), help="training strategy name")
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam"], help="optimizer name")
     parser.add_argument("--pretrain", type=str, default="resnet", choices=["none", "resnet", "depth", "dinov3"], help="strategy model map selector")
     parser.add_argument("--num_classes", type=int, default=None)
     parser.add_argument("--fold", type=str if test_mode else int, nargs="*" if test_mode else None, default=None)
@@ -112,31 +147,6 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--consistency_rampup_div", type=int, default=200)
     parser.add_argument("--consistency_start_iters", type=int, default=1000)
     parser.add_argument("--ema_decay", type=float, default=0.99)
-    parser.add_argument("--proto_feature_dim", type=int, default=256)
-    parser.add_argument("--proto_pixel_weight", type=float, default=0.05)
-    parser.add_argument("--proto_momentum", type=float, default=0.999)
-    parser.add_argument("--proto_entropy_q_low", type=int, default=20)
-    parser.add_argument("--proto_entropy_q_high", type=int, default=95)
-    parser.add_argument("--proto_entropy_temp", type=float, default=0.1)
-    parser.add_argument("--proto_entropy_num_samples", type=int, default=1024)
-    parser.add_argument("--contrast_feature_dim", type=int, default=256)
-    parser.add_argument("--contrast_loss_weight", type=float, default=0.05)
-    parser.add_argument("--contrast_temperature", type=float, default=0.1)
-    parser.add_argument("--contrast_boundary_width", type=int, default=1)
-    parser.add_argument("--contrast_min_pixels", type=int, default=8)
-    parser.add_argument("--contrast_max_samples", type=int, default=64)
-    parser.add_argument("--depth_loss_weight", type=float, default=1.0)
-    parser.add_argument("--depth_consistency_weight", type=float, default=0.5)
-    parser.add_argument("--appearance_consistency_weight", type=float, default=0.25)
-    parser.add_argument("--geometry_align_weight", type=float, default=0.10)
-    parser.add_argument("--geometry_invariance_weight", type=float, default=0.05)
-    parser.add_argument("--mi_loss_weight", type=float, default=0.01)
-    parser.add_argument("--disentangle_dim", type=int, default=128)
-    parser.add_argument("--depth_l1_weight", type=float, default=1.0)
-    parser.add_argument("--depth_gradient_weight", type=float, default=0.1)
-    parser.add_argument("--depth_smoothness_weight", type=float, default=0.01)
-    parser.add_argument("--depth_ssim_weight", type=float, default=0.5)
-    parser.add_argument("--depth_range_weight", type=float, default=0.1)
 
 
 def add_train_args(parser):
@@ -170,14 +180,14 @@ def add_test_args(parser):
 
 
 def build_train_parser():
-    parser = argparse.ArgumentParser()
+    parser = StrategyArgumentParser()
     add_common_args(parser, result_root_default="../result_train", test_mode=False)
     add_train_args(parser)
     return parser
 
 
 def build_test_parser():
-    parser = argparse.ArgumentParser()
+    parser = StrategyArgumentParser()
     add_common_args(parser, result_root_default="../result_predict", test_mode=True)
     add_test_args(parser)
     return parser
