@@ -70,7 +70,8 @@ def finalize_test_args(args):
 
 
 def format_args_for_logging(args):
-    return pprint.pformat({"common": {k: getattr(args, k, None) for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "normalize", "device", "seed"]}, "train": {k: getattr(args, k, None) for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root"]}, "test": {k: getattr(args, k, None) for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"]}}, indent=2, width=100)
+    data = vars(args)
+    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
 
 
 class StrategyArgumentParser(argparse.ArgumentParser):
@@ -118,6 +119,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--filter_num", type=int, default=16, help="filter number for UNet-family models")
     parser.add_argument("--resize_size", type=int, nargs=2, default=[224, 224])
     parser.add_argument("--use_depth", type=int, default=None, choices=[1, 3, 13], help="Depth mode: 1=depth1c input, 3=depth3c input, 13=load both depth1c+depth3c while model input keeps depth1c channels.")
+    parser.add_argument("--depth_uint", type=int, default=16, choices=[8, 16], help="Depth folder bit-width suffix. Reads depth{c}c_slices_uint{depth_uint}.")
     parser.add_argument("--normalize", type=str, default="255", choices=["minmax", "255", "imagenet"])
     parser.add_argument("--strong", type=str, default="s", help="Noise location: t=teacher, s=student, empty=none")
     parser.add_argument("--load_mode", type=str, default="data", choices=["data", "path"])

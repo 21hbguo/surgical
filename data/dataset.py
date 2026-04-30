@@ -82,14 +82,10 @@ def _find_png_paths(case, base_dir, _split, task):
     return img_path, None
 
 
-def _find_depth_png_path(case, base_dir, _split, depth_channels=1):
-    depth_dirs = ["depth3c_slices", "depth3c_slices_uint8"] if depth_channels == 3 else ["depth1c_slices", "depth1c_slices_uint8"]
+def _find_depth_png_path(case, base_dir, _split, depth_channels=1, depth_uint=16):
     case_stem = _strip_known_image_extension(case)
-    for depth_dir in depth_dirs:
-        path = f"{base_dir}/data/{depth_dir}/{case_stem}.png"
-        if os.path.exists(path):
-            return path
-    return None
+    path = f"{base_dir}/data/depth{int(depth_channels)}c_slices_uint{int(depth_uint)}/{case_stem}.png"
+    return path if os.path.exists(path) else None
 
 
 def _load_and_resize_sample(
@@ -101,6 +97,7 @@ def _load_and_resize_sample(
     target_w,
     num_classes=None,
     depth_channels=None,
+    depth_uint=16,
     strategy=None,
     task=None,
 ):
@@ -128,11 +125,11 @@ def _load_and_resize_sample(
         return idx, sample
 
     if depth_channels == 13:
-        depth1c_path = _find_depth_png_path(case, base_dir, split, depth_channels=1)
+        depth1c_path = _find_depth_png_path(case, base_dir, split, depth_channels=1, depth_uint=depth_uint)
         if depth1c_path is not None:
             depth1 = cv2.imread(depth1c_path, cv2.IMREAD_UNCHANGED)
             sample["depth1"] = _resize_numpy_array(depth1, (target_h, target_w))
-        depth3c_path = _find_depth_png_path(case, base_dir, split, depth_channels=3)
+        depth3c_path = _find_depth_png_path(case, base_dir, split, depth_channels=3, depth_uint=depth_uint)
         if depth3c_path is not None:
             depth3 = cv2.imread(depth3c_path, cv2.IMREAD_COLOR)
             depth3 = cv2.cvtColor(depth3, cv2.COLOR_BGR2RGB)
@@ -140,14 +137,14 @@ def _load_and_resize_sample(
         return idx, sample
 
     if depth_channels == 3:
-        depth3c_path = _find_depth_png_path(case, base_dir, split, depth_channels=3)
+        depth3c_path = _find_depth_png_path(case, base_dir, split, depth_channels=3, depth_uint=depth_uint)
         if depth3c_path is not None:
             depth3 = cv2.imread(depth3c_path, cv2.IMREAD_COLOR)
             depth3 = cv2.cvtColor(depth3, cv2.COLOR_BGR2RGB)
             sample["depth3"] = _resize_numpy_array(depth3, (target_h, target_w))
         return idx, sample
 
-    depth1c_path = _find_depth_png_path(case, base_dir, split, depth_channels=1)
+    depth1c_path = _find_depth_png_path(case, base_dir, split, depth_channels=1, depth_uint=depth_uint)
     if depth1c_path is not None:
         depth1 = cv2.imread(depth1c_path, cv2.IMREAD_UNCHANGED)
         sample["depth1"] = _resize_numpy_array(depth1, (target_h, target_w))
@@ -169,6 +166,7 @@ class BaseDataSets(Dataset):
         load_mode="data",
         num_classes=None,
         depth_channels=None,
+        depth_uint=16,
         strategy=None,
         normalize_method="imagenet",
         sampling="none",
@@ -185,6 +183,7 @@ class BaseDataSets(Dataset):
         self.load_mode = load_mode
         self.num_classes = num_classes
         self.depth_channels = depth_channels
+        self.depth_uint = int(depth_uint)
         self.strategy = strategy
         self.normalize_method = normalize_method
         self.sampling = sampling
@@ -218,8 +217,8 @@ class BaseDataSets(Dataset):
         return _find_png_paths(case, base_dir, _split, task)
 
     @staticmethod
-    def _find_depth_png_path_static(case, base_dir, _split, depth_channels=1):
-        return _find_depth_png_path(case, base_dir, _split, depth_channels=depth_channels)
+    def _find_depth_png_path_static(case, base_dir, _split, depth_channels=1, depth_uint=16):
+        return _find_depth_png_path(case, base_dir, _split, depth_channels=depth_channels, depth_uint=depth_uint)
 
     def _preload_samples(self):
         if not self.sample_list or self.load_mode != "data":
@@ -236,6 +235,7 @@ class BaseDataSets(Dataset):
                 self.resize_size[1],
                 self.num_classes,
                 self.depth_channels,
+                self.depth_uint,
                 self.strategy,
                 self.task,
             )
@@ -265,6 +265,7 @@ class BaseDataSets(Dataset):
             *self.resize_size,
             self.num_classes,
             self.depth_channels,
+            self.depth_uint,
             self.strategy,
             self.task,
         )[1]

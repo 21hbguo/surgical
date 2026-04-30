@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.args import build_test_parser, build_train_parser, finalize_test_args, finalize_train_args
+from core.args import build_test_parser, build_train_parser, finalize_test_args, finalize_train_args, format_args_for_logging
 import core.runtime as runtime
 import utils.common as common
 
@@ -80,6 +80,7 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(args.optimizer, "adam")
         self.assertEqual(args.lr, 3e-5)
         self.assertEqual(args.filter_num, 16)
+        self.assertEqual(args.depth_uint, 16)
         self.assertEqual(args.consistency, 0.1)
         self.assertEqual(args.ema_decay, 0.99)
         self.assertFalse(hasattr(args, "proto_feature_dim"))
@@ -163,6 +164,8 @@ class ArgsRuntimeTest(unittest.TestCase):
             train_parser.parse_args(["--task", "1", "--resume", "checkpoint_dir"])
         with self.assertRaises(SystemExit):
             test_parser.parse_args(["--task", "1", "--resume", "checkpoint_dir"])
+        with self.assertRaises(SystemExit):
+            train_parser.parse_args(["--task", "1", "--depth_uint", "12"])
 
     def test_parser_accepts_canonical_and_legacy_strategy_flags(self):
         canonical = build_train_parser().parse_args(["--task", "1", "--way", "proto"])
@@ -258,6 +261,15 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertFalse(hasattr(finalized, "resume"))
         self.assertEqual(finalized.train_result_root, os.path.normpath(os.path.abspath("../result_train")))
         self.assertEqual(finalized.predict_result_root, os.path.normpath(os.path.abspath("../result_predict")))
+
+    def test_format_args_for_logging_train_args_does_not_require_test_fields(self):
+        args = build_train_parser().parse_args(["--task", "1", "--exp", "toy/Fully"])
+        with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
+            finalized = finalize_train_args(args)
+        text = format_args_for_logging(finalized)
+        self.assertIn("'common':", text)
+        self.assertIn("'train':", text)
+        self.assertIn("'test': {}", text)
 
     def test_test_parser_defaults_include_relative_result_roots(self):
         args = build_test_parser().parse_args(["--task", "1"])

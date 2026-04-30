@@ -232,6 +232,7 @@ def _collate_test_batch(batch):
 
 def _build_test_loader(args, fold, fold_map):
     depth_channels = args.use_depth if args.use_depth else None
+    depth_uint = int(args.depth_uint)
     is_depth = bool(depth_channels)
     test_dataset = BaseDataSets(
         base_dir=args.root_path,
@@ -241,6 +242,7 @@ def _build_test_loader(args, fold, fold_map):
         load_mode='path',
         num_classes=args.num_classes,
         depth_channels=depth_channels if is_depth else None,
+        depth_uint=depth_uint,
         normalize_method=args.normalize,
         fold_map=fold_map,
         use_val=False,

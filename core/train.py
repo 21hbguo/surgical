@@ -46,6 +46,7 @@ def create_dataloaders(args):
         return (values * repeat_factor)[:min_length]
 
     depth_channels = args.use_depth if args.use_depth else None
+    depth_uint = int(args.depth_uint)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num, args.fold)
     if args.debug:
         train_num, val_num, debug_labeled_slice = 100, 50, min(20, labeled_slice)
@@ -63,6 +64,7 @@ def create_dataloaders(args):
         load_mode=args.load_mode,
         num_classes=args.num_classes,
         depth_channels=depth_channels,
+        depth_uint=depth_uint,
         strategy=args.way if depth_channels else None,
         normalize_method=args.normalize,
         sampling=args.sampling,
@@ -92,6 +94,7 @@ def create_dataloaders(args):
             load_mode=args.load_mode,
             num_classes=args.num_classes,
             depth_channels=depth_channels,
+            depth_uint=depth_uint,
             strategy=args.way if depth_channels else None,
             normalize_method=args.normalize,
             sampling=args.sampling,

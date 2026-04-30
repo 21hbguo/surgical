@@ -277,7 +277,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
     def test_dataset_test_inference_keeps_original_shape_and_separates_depth(self):
         _write_png(Path(self.root_path) / "data" / "images" / "case_depth.png", np.full((2, 3, 3), 128, dtype=np.uint8))
         _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_depth.png", np.array([[0, 255, 0], [255, 0, 255]], dtype=np.uint8))
-        _write_png(Path(self.root_path) / "data" / "depth1c_slices" / "case_depth.png", np.full((2, 3), 32, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices_uint16" / "case_depth.png", np.full((2, 3), 32, dtype=np.uint8))
         with open(os.path.join(self.root_path, "test_slices.list"), "w", encoding="utf-8") as handle:
             handle.write("case_depth.png\n")
 
@@ -316,6 +316,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             resize_size=(4, 5),
             num_classes=2,
             use_depth=0,
+            depth_uint=16,
             normalize="minmax",
             task=1,
             batch_size=1,
@@ -335,7 +336,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             Path(self.root_path) / "data" / "labels_task1_binary" / "case_mt_depth.png",
             np.array([[0, 255, 0], [255, 0, 255]], dtype=np.uint8),
         )
-        _write_png(Path(self.root_path) / "data" / "depth3c_slices" / "case_mt_depth.png", np.full((2, 3, 3), 32, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth3c_slices_uint16" / "case_mt_depth.png", np.full((2, 3, 3), 32, dtype=np.uint8))
         with open(os.path.join(self.root_path, "test_slices.list"), "w", encoding="utf-8") as handle:
             handle.write("case_mt_depth.png\n")
 
@@ -344,6 +345,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             resize_size=(4, 5),
             num_classes=2,
             use_depth=3,
+            depth_uint=16,
             normalize="255",
             task=1,
             batch_size=1,
@@ -405,6 +407,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             load_mode="path",
             num_classes=2,
             use_depth=0,
+            depth_uint=16,
             way="mt",
             normalize="255",
             sampling="interval",
@@ -434,7 +437,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             np.array([[0, 255], [255, 0]], dtype=np.uint8),
         )
         _write_png(
-            Path(self.root_path) / "data" / "depth3c_slices" / "case_depth3.png",
+            Path(self.root_path) / "data" / "depth3c_slices_uint16" / "case_depth3.png",
             np.full((2, 2, 3), 128, dtype=np.uint8),
         )
         with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
@@ -461,6 +464,25 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertEqual(tuple(sample["depth3"].shape), (3, 2, 2))
         self.assertAlmostEqual(float(sample["depth3"].max().item()), 128.0 / 255.0, places=6)
 
+    def test_depth_uint_selects_uint_folder_without_legacy_fallback(self):
+        _write_png(Path(self.root_path) / "data" / "images" / "case_depth_uint.png", np.full((2, 2, 3), 100, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_depth_uint.png", np.array([[0, 255], [255, 0]], dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices" / "case_depth_uint.png", np.full((2, 2), 200, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices_uint8" / "case_depth_uint.png", np.full((2, 2), 80, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices_uint16" / "case_depth_uint.png", np.full((2, 2), 16000, dtype=np.uint16))
+        _write_png(Path(self.root_path) / "data" / "images" / "case_depth_only_legacy.png", np.full((2, 2, 3), 100, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_depth_only_legacy.png", np.array([[0, 255], [255, 0]], dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices" / "case_depth_only_legacy.png", np.full((2, 2), 123, dtype=np.uint8))
+        with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_depth_uint\n")
+            handle.write("case_depth_only_legacy\n")
+        dataset_u8 = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, depth_uint=8, normalize_method="255", is_depth=True, task=1)
+        dataset_u16 = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, depth_uint=16, normalize_method="255", is_depth=True, task=1)
+        self.assertEqual(float(dataset_u8._get_sample(0)["depth1"].max()), 80.0)
+        self.assertEqual(float(dataset_u16._get_sample(0)["depth1"].max()), 16000.0)
+        self.assertNotIn("depth1", dataset_u8._get_sample(1))
+        self.assertNotIn("depth1", dataset_u16._get_sample(1))
+
     def test_depth13_loads_both_depth_inputs_and_keeps_image_rgb_only_in_inference(self):
         _write_png(
             Path(self.root_path) / "data" / "images" / "case_depth13.png",
@@ -471,11 +493,11 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             np.array([[0, 255], [255, 0]], dtype=np.uint8),
         )
         _write_png(
-            Path(self.root_path) / "data" / "depth3c_slices" / "case_depth13.png",
+            Path(self.root_path) / "data" / "depth3c_slices_uint16" / "case_depth13.png",
             np.full((2, 2, 3), 128, dtype=np.uint8),
         )
         _write_png(
-            Path(self.root_path) / "data" / "depth1c_slices" / "case_depth13.png",
+            Path(self.root_path) / "data" / "depth1c_slices_uint16" / "case_depth13.png",
             np.full((2, 2), 64, dtype=np.uint8),
         )
         with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
@@ -517,10 +539,10 @@ class TaskDatasetSelectionTest(unittest.TestCase):
     def test_depth1_255_normalization_distinguishes_uint8_and_uint16_in_train_and_test(self):
         _write_png(Path(self.root_path) / "data" / "images" / "case_depth_u8.png", np.full((2, 2, 3), 100, dtype=np.uint8))
         _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_depth_u8.png", np.array([[0, 255], [255, 0]], dtype=np.uint8))
-        _write_png(Path(self.root_path) / "data" / "depth1c_slices" / "case_depth_u8.png", np.full((2, 2), 128, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices_uint16" / "case_depth_u8.png", np.full((2, 2), 128, dtype=np.uint8))
         _write_png(Path(self.root_path) / "data" / "images" / "case_depth_u16.png", np.full((2, 2, 3), 100, dtype=np.uint8))
         _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_depth_u16.png", np.array([[0, 255], [255, 0]], dtype=np.uint8))
-        _write_png(Path(self.root_path) / "data" / "depth1c_slices" / "case_depth_u16.png", np.full((2, 2), 32768, dtype=np.uint16))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices_uint16" / "case_depth_u16.png", np.full((2, 2), 32768, dtype=np.uint16))
         with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
             handle.write("case_depth_u8\n")
             handle.write("case_depth_u16\n")
@@ -771,6 +793,8 @@ class TaskDatasetSelectionTest(unittest.TestCase):
                 "mt_depth_teacher_v1",
                 "--use_depth",
                 "3",
+                "--feat_vis",
+                "0",
             ]
         )
         with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
@@ -784,6 +808,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             def __init__(self):
                 self.seen_image_shape = None
                 self.seen_depth_shape = None
+                self.model = None
 
             def validation_step(self, batch_data):
                 self.seen_image_shape = tuple(batch_data["image"].shape)
