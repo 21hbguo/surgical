@@ -110,22 +110,26 @@ def parse_requested_folds(raw_folds, num_folds):
 
 
 def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False):
-    strategy_model = getattr(strategy, "model", None) if strategy is not None else None
-    if strategy is not None and strategy_model is None and hasattr(strategy, "validation_step") and not use_grad:
+    strategy_model = strategy.model if strategy is not None else None
+    if strategy is not None and strategy_model is None:
         outputs = strategy.validation_step(sample_batch)
     else:
         target_model = strategy_model if strategy_model is not None else model
         volume = sample_batch["image"].to(device)
-        if strategy is not None and hasattr(strategy, "_get_depth_tensor"):
+        use_depth = int(args.use_depth or 0)
+        if strategy is not None:
             depth_tensor = strategy._get_depth_tensor(sample_batch)
-        elif int(args.use_depth or 0):
-            depth_key = "depth3" if int(args.use_depth or 0) == 3 else "depth1"
+        elif use_depth:
+            depth_key = f"depth{use_depth}"
             raw_depth = sample_batch.get(depth_key)
             depth_tensor = raw_depth.to(device) if raw_depth is not None else None
         else:
             depth_tensor = None
         if depth_tensor is not None:
-            volume = torch.cat([volume, depth_tensor], dim=1)
+            if args.way == "only_depth_input":
+                volume = depth_tensor.repeat(1, 3, 1, 1) if depth_tensor.shape[1] == 1 else depth_tensor
+            else:
+                volume = torch.cat([volume, depth_tensor], dim=1)
         if use_grad:
             outputs = target_model(volume)
         else:
@@ -150,7 +154,7 @@ def _normalize_heatmap(heat: np.ndarray) -> np.ndarray:
 
 
 def _compute_gradcam_heatmap(args, model, strategy, sample_batch, device, hook_manager, target_class=None):
-    strategy_model = getattr(strategy, "model", None) if strategy is not None else None
+    strategy_model = strategy.model if strategy is not None else None
     if strategy is not None and strategy_model is None:
         return None
     target_model = strategy_model if strategy_model is not None else model
@@ -307,7 +311,7 @@ def inference(
     all_metrics = []
     gradcam_hooks = None
     if args.feat_vis:
-        target_model = getattr(strategy, "model", None) if strategy is not None else model
+        target_model = strategy.model if strategy is not None else model
         if target_model is None:
             target_model = model
         gradcam_hooks = GradCAMHookManager(

@@ -32,6 +32,7 @@ cd "$DIR"
 # CUDA_VISIBLE_DEVICES=0 python -m core.test --fold -1 --task 2 --way fully --exp endovis2017/Fully --labeled_num 100 && \
 # CUDA_VISIBLE_DEVICES=0 python -m core.test --fold -1 --task 3 --way fully --exp endovis2017/Fully --labeled_num 100
 
+CUDA_VISIBLE_DEVICES=0 python -m core.test --fold -1 --task 1 --way only_depth_input --exp endovis2017/OnlyDepthInput --labeled_num 40 --use_depth 1 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.test --fold -1 --task 2 --way fully --exp endovis2017/Fully --labeled_num 100 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.test --fold -1 --task 2 --way fully --exp endovis2017/Fully --labeled_num 40 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.test --fold -1 --task 2 --way fully --exp endovis2017/Fully --labeled_num 20 && \
