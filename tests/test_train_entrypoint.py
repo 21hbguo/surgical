@@ -1,4 +1,5 @@
 from argparse import Namespace
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -82,6 +83,28 @@ class TrainEntrypointStructureTest(unittest.TestCase):
             unlabeled_path = Path(tmpdir) / "data_train_unlabeled.list"
             self.assertEqual(labeled_path.read_text(encoding="utf-8").splitlines(), ["case0", "case2"])
             self.assertEqual(unlabeled_path.read_text(encoding="utf-8").splitlines(), ["case1", "case3"])
+    def test_trainer_writes_zero_byte_final_marker_when_validation_enabled(self):
+        class DummySampler:
+            primary_indices = [0]
+            secondary_indices = [1]
+        class DummyDataset:
+            sample_list = ["case0", "case1"]
+        class DummyLoader:
+            dataset = DummyDataset()
+            batch_sampler = DummySampler()
+        class DummyStrategy:
+            def __init__(self):
+                param = torch.nn.Parameter(torch.zeros(()))
+                self.optimizer = torch.optim.SGD([param], lr=0.1)
+            def get_state_dict(self):
+                return {"w": torch.tensor([1.0])}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = Namespace(snapshot_path=tmpdir, max_iterations=1, val_iter=1, lr_scheduler="poly", lr_warmup_iters=0, lr=0.1, lr_warmup_ratio=0.0, lr_min_ratio=0.0, poly_power=0.9)
+            trainer = train_core.Trainer(args, DummyStrategy(), DummyLoader(), DummyLoader(), torch.device("cpu"), labeled_slice=1)
+            trainer._save_model("final")
+            final_path = os.path.join(tmpdir, "model_final.pth")
+            self.assertTrue(os.path.exists(final_path))
+            self.assertEqual(os.path.getsize(final_path), 0)
 
 
 if __name__ == "__main__":

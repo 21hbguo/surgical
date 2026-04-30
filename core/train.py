@@ -398,13 +398,17 @@ class Trainer:
             self.strategy.model.train()
 
     def _save_model(self, suffix):
+        path = os.path.join(self.snapshot_path, f"model_{suffix}.pth")
+        if suffix == "final" and self.has_val:
+            with open(path, "wb"):
+                pass
+            return
         state = {
             "model_state": self.strategy.get_state_dict(),
             "args": vars(self.args).copy(),
             "iter_num": self.iter_num,
             "best_performance": self.best_performance,
         }
-        path = os.path.join(self.snapshot_path, f"model_{suffix}.pth")
         self._atomic_torch_save(state, path)
 
     def _atomic_torch_save(self, state, path):
