@@ -274,7 +274,17 @@ class BaseDataSets(Dataset):
         if depth3 is not None:
             depth3 = _normalize_array(depth3, method=self.normalize_method)
         if depth1 is not None:
-            depth1 = _normalize_array(depth1, method=self.normalize_method)
+            if self.normalize_method == "255":
+                depth1_dtype = depth1.dtype
+                depth1 = depth1.astype(np.float32)
+                if np.issubdtype(depth1_dtype, np.integer):
+                    depth1_max = float(np.iinfo(depth1_dtype).max)
+                    if depth1_max > 1.0 and float(depth1.max()) > 1.0:
+                        depth1 = depth1 / depth1_max
+                elif float(depth1.max()) > 1.0:
+                    depth1 = depth1 / 255.0
+            else:
+                depth1 = _normalize_array(depth1, method=self.normalize_method)
         return image, depth3, depth1
 
     def _to_train_or_val_item(self, sample, idx):

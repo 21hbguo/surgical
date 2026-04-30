@@ -514,6 +514,29 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertEqual(tuple(item["image"].shape), (3, 2, 2))
         self.assertEqual(tuple(item["depth1"].shape), (1, 2, 2))
         self.assertEqual(tuple(item["depth3"].shape), (3, 2, 2))
+    def test_depth1_255_normalization_distinguishes_uint8_and_uint16_in_train_and_test(self):
+        _write_png(Path(self.root_path) / "data" / "images" / "case_depth_u8.png", np.full((2, 2, 3), 100, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_depth_u8.png", np.array([[0, 255], [255, 0]], dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices" / "case_depth_u8.png", np.full((2, 2), 128, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "images" / "case_depth_u16.png", np.full((2, 2, 3), 100, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_depth_u16.png", np.array([[0, 255], [255, 0]], dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "depth1c_slices" / "case_depth_u16.png", np.full((2, 2), 32768, dtype=np.uint16))
+        with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_depth_u8\n")
+            handle.write("case_depth_u16\n")
+        with open(os.path.join(self.root_path, "test_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_depth_u8.png\n")
+            handle.write("case_depth_u16.png\n")
+        train_dataset = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, normalize_method="255", is_depth=True, task=1)
+        train_u8 = train_dataset[0]["depth1"].numpy()
+        train_u16 = train_dataset[1]["depth1"].numpy()
+        self.assertAlmostEqual(float(train_u8.max()), 128.0 / 255.0, places=6)
+        self.assertAlmostEqual(float(train_u16.max()), 32768.0 / 65535.0, places=6)
+        test_dataset = BaseDataSets(base_dir=self.root_path, split="test", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, normalize_method="255", for_inference=True, is_depth=True, task=1)
+        test_u8 = test_dataset[0]["depth1"].numpy()
+        test_u16 = test_dataset[1]["depth1"].numpy()
+        self.assertAlmostEqual(float(test_u8.max()), 128.0 / 255.0, places=6)
+        self.assertAlmostEqual(float(test_u16.max()), 32768.0 / 65535.0, places=6)
 
     def test_binary_label_values_are_normalized_to_zero_one(self):
         _write_png(Path(self.root_path) / "data" / "images" / "case_binary.png", np.full((3, 3, 3), 64, dtype=np.uint8))
