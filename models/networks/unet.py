@@ -164,7 +164,7 @@ class UNet_Base(nn.Module):
         super(UNet_Base, self).__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -187,7 +187,7 @@ class UNet_DepthGuiderV1(nn.Module):
         super().__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -252,7 +252,7 @@ class DepthGuiderV3(nn.Module):
 class UNet_DepthGuiderV3(nn.Module):
     def __init__(self, in_chns, class_num, filter_num=16):
         super().__init__()
-        params = {'in_chns': in_chns, 'dropout': [0.05, 0.1, 0.2, 0.3, 0.5], 'class_num': class_num, 'bilinear': False, 'acti_func': 'relu', 'filter_num': filter_num}
+        params = {'in_chns': in_chns, 'dropout': [0, 0, 0, 0, 0], 'class_num': class_num, 'bilinear': False, 'acti_func': 'relu', 'filter_num': filter_num}
         self.params = params
         self.encoder = Encoder(params, filter_num)
         self.decoder = Decoder(params, filter_num)
@@ -289,7 +289,7 @@ class UNet_ContrastV1(nn.Module):
         super(UNet_ContrastV1, self).__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -314,7 +314,7 @@ class UNet_URPC(nn.Module):
         super(UNet_URPC, self).__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -336,7 +336,7 @@ class UNet_proto(nn.Module):
         super().__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -367,7 +367,7 @@ class UNet_DepthGuiderProtoV1(nn.Module):
         super().__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -404,7 +404,7 @@ class UNet_W2S(nn.Module):
         super(UNet_W2S, self).__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -431,7 +431,7 @@ class UNet_Depth(nn.Module):
         super(UNet_Depth, self).__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
@@ -508,7 +508,7 @@ class UNet_DyCON(nn.Module):
         self.use_aspp = use_aspp
         self.scale_factor = scale_factor
         filters = [filter_num * (2 ** i) for i in range(5)]
-        dropout = [0.05, 0.1, 0.2, 0.3, 0.5]
+        dropout = [0, 0, 0, 0, 0]
         self.params = {
             'in_chns': in_chns,
             'class_num': class_num,
@@ -570,7 +570,7 @@ class UNet_DepthPretrain(nn.Module):
         super().__init__()
         params = {
             'in_chns': in_chns,
-            'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+            'dropout': [0, 0, 0, 0, 0],
             'class_num': class_num,
             'bilinear': False,
             'acti_func': 'relu',
