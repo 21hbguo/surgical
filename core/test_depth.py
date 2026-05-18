@@ -30,7 +30,7 @@ from core.testing import (
 from data import BaseDataSets
 from models.factory import create_model
 from strategies import create_strategy
-from utils.common import build_run_output_dir, load_checkpoint
+from utils.common import build_run_output_dir, get_fold_seqs_from_path, load_checkpoint
 
 warnings.filterwarnings('ignore', message='.*timm.models.layers.*')
 
@@ -64,17 +64,6 @@ def create_inference_strategy(args, model, device):
         setattr(strategy_args, key, value)
     optimizer = torch.optim.Adam(model.parameters(), lr=strategy_args.lr, betas=(0.9, 0.99), weight_decay=0.0001)
     return create_strategy(strategy_args.way, strategy_args, model, optimizer, device)
-
-
-def get_fold_map(num_folds):
-    if num_folds == 4:
-        return {
-            0: [1, 3],
-            1: [2, 5],
-            2: [4, 8],
-            3: [6, 7],
-        }
-    return {}
 
 
 def parse_requested_folds(raw_folds, num_folds):
@@ -614,7 +603,7 @@ def main():
 
     args.fold = None
     context = build_test_run_context(args)
-    fold_map = get_fold_map(args.num_folds) if args.num_folds is not None and args.num_folds > 1 else {}
+    fold_map = get_fold_seqs_from_path(args.root_path, args.task) if args.num_folds is not None and args.num_folds > 1 else {}
 
     train_best_by_fold = {}
     all_records = []

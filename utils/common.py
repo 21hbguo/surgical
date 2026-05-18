@@ -215,6 +215,17 @@ def get_n_folds_from_path(root_path, task):
     return info["n_folds"]
 
 
+def get_fold_seqs_from_path(root_path, task):
+    _, info = load_classes_info(root_path, task)
+    n_folds = info.get("n_folds", 1)
+    raw = info.get("fold_seqs")
+    if n_folds > 1 and raw is None:
+        logging.warning("n_folds=%d but no fold_seqs in %s/task%s.json, no per-fold filtering", n_folds, root_path, task)
+    if not raw:
+        return {}
+    return {int(k): v for k, v in raw.items()}
+
+
 def _extract_state_dict_from_checkpoint(checkpoint):
     state_dict = checkpoint
     for key in ("model_state_dict", "model_state", "state_dict", "model"):
