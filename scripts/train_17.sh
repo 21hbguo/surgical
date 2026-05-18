@@ -59,20 +59,20 @@ export TMPDIR
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt --exp endovis2017/MT --labeled_num 10
 
 
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt --exp endovis2017/MT --labeled_num 40 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_teacher_v1 --exp endovis2017/MT_depth_teacher_v1 --labeled_num 40 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_teacher_v1 --exp endovis2017/MT_depth_teacher2_v1 --labeled_num 40 --use_depth 3 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_guider_v1 --exp endovis2017/MT_depth_guider_v1 --labeled_num 40 --use_depth 1 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_guider_v2 --exp endovis2017/MT_depth_guider_v2 --labeled_num 40 --use_depth 1 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_guider_proto_v1 --exp endovis2017/MT_depth_guider_proto_v1 --labeled_num 40 --use_depth 1 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_guider_proto_teacher_v1 --exp endovis2017/mt_depth_guider_proto_teacher_v1 --labeled_num 40 --use_depth 13 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_guider_proto_teacher_v2 --exp endovis2017/mt_depth_guider_proto_teacher_v2 --labeled_num 40 --use_depth 13 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way semi_mean_teacher_contrast_v1 --exp endovis2017/MT_contrast_v1 --labeled_num 40 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way proto_v1 --exp endovis2017/MT_proto_v1 --labeled_num 40 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way fully_depth_pretrain_v1 --exp endovis2017/FullyDepthPretrain_v1 --labeled_num 40 --use_depth 3 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way fully_rgb_masking_depth_v1 --exp endovis2017/FullyRGBMaskingDepth_v1 --labeled_num 40 --use_depth 3 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt --exp endovis2017/MT --labeled_num 20 && \
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt --exp endovis2017/MT --labeled_num 10
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt --exp endovis2017/MT --labeled_num 40 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_teacher_v1 --exp endovis2017/MT_depth_teacher_v1 --labeled_num 40 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_teacher_v1 --exp endovis2017/MT_depth_teacher2_v1 --labeled_num 40 --use_depth 3 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_guider_v1 --exp endovis2017/MT_depth_guider_v1 --labeled_num 40 --use_depth 1 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_guider_v2 --exp endovis2017/MT_depth_guider_v2 --labeled_num 40 --use_depth 1 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_guider_proto_v1 --exp endovis2017/MT_depth_guider_proto_v1 --labeled_num 40 --use_depth 1 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_guider_proto_teacher_v1 --exp endovis2017/mt_depth_guider_proto_teacher_v1 --labeled_num 40 --use_depth 13 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_guider_proto_teacher_v2 --exp endovis2017/mt_depth_guider_proto_teacher_v2 --labeled_num 40 --use_depth 13 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way semi_mean_teacher_contrast_v1 --exp endovis2017/MT_contrast_v1 --labeled_num 40 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way proto_v1 --exp endovis2017/MT_proto_v1 --labeled_num 40 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way fully_depth_pretrain_v1 --exp endovis2017/FullyDepthPretrain_v1 --labeled_num 40 --use_depth 3 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way fully_rgb_masking_depth_v1 --exp endovis2017/FullyRGBMaskingDepth_v1 --labeled_num 40 --use_depth 3 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt --exp endovis2017/MT --labeled_num 20 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt --exp endovis2017/MT --labeled_num 10
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way ternaus --exp endovis2017/TernausNet16 --labeled_num 100 &
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way ternaus --exp endovis2017/TernausNet16 --labeled_num 40
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way ternaus --exp endovis2017/TernausNet16 --labeled_num 100 && \
@@ -83,11 +83,11 @@ export TMPDIR
 
 
 ## 要挂的实验(work的)
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way semi_mean_teacher_text_v1 --exp endovis2017/MTTextV1 --labeled_num 40 --proto_feature_dim 512
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_guider_v3 --exp endovis2017/MT_depth_guider_v3 --labeled_num 40 --use_depth 1
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way semi_mean_teacher_text_v1 --exp endovis2017/MTTextV1 --labeled_num 40 --proto_feature_dim 512
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_guider_v3 --exp endovis2017/MT_depth_guider_v3 --labeled_num 40 --use_depth 1
 
 ## 测试验证可不可以
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way mt_depth_teacher_v1 --exp endovis2017/MT_depth_teacher_v1 --labeled_num 40 --use_depth 3
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way mt_depth_teacher_v1 --exp endovis2017/MT_depth_teacher_v1 --labeled_num 40 --use_depth 3
 
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way only_depth_input --exp endovis2017/OnlyDepthInput --labeled_num 40 --use_depth 1
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --lr 3e-5 --way only_depth_input --exp endovis2017/OnlyDepthInput --labeled_num 10 --use_depth 1
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way only_depth_input --exp endovis2017/OnlyDepthInput --labeled_num 40 --use_depth 1
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 2 --way only_depth_input --exp endovis2017/OnlyDepthInput --labeled_num 10 --use_depth 1
