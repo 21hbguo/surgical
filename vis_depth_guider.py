@@ -1,7 +1,7 @@
 """
 可视化 DepthGuider 的 gamma/beta 值。
 对 test 的第一张图，每层选 top-K 通道的特征图，标注 gamma/beta 值并拼接。
-用法与 test_depth.py 一致，--pth best/final 自动解析 checkpoint 路径。
+用法与 test.py 一致，--pth best/final 自动解析 checkpoint 路径。
 """
 
 import os
@@ -179,11 +179,11 @@ def main():
     args = parser.parse_args()
     finalize_test_args(args)
 
-    # --ckpt 优先，否则和 test_depth.py 一样自动解析
+    # --ckpt 优先，否则和 test.py 一样自动解析
     if args.ckpt:
         ckpt_path = args.ckpt
     else:
-        from core.test_depth import parse_requested_folds
+        from core.test import parse_requested_folds
         from utils.common import build_run_output_dir
         context = build_test_run_context(args)
         checkpoint_name = 'model_best.pth' if context.checkpoint_type == 'best' else 'model_final.pth'
@@ -212,7 +212,7 @@ def main():
     # 构建数据集，取第一张
     strategy = None
     if args.way:
-        from core.test_depth import create_inference_strategy
+        from core.test import create_inference_strategy
         strategy = create_inference_strategy(args, model, device)
 
     depth_channels = args.use_depth if args.use_depth else None
