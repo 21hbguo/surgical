@@ -142,8 +142,8 @@ def add_common_args(parser, result_root_default, test_mode=False):
 
 def add_train_args(parser):
     parser.add_argument("--labeled_num", type=float, default=10, help="Labeled percentage. Examples: 0.1=0.1%%, 1=1%%, 10=10%%.")
-    parser.add_argument("--labeled_bs", type=int, default=4)
-    parser.add_argument("--unlabeled_bs", type=int, default=4)
+    parser.add_argument("--labeled_bs", type=int, default=2)
+    parser.add_argument("--unlabeled_bs", type=int, default=2)
     parser.add_argument("--sampling", type=str, default="none", choices=["none", "interval"])
     parser.add_argument("--max_iterations", type=int, default=30000)
     parser.add_argument("--val_iter", type=int, default=300)

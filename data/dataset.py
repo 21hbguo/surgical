@@ -3,6 +3,7 @@ import logging
 import os
 
 import cv2
+import h5py
 import numpy as np
 from torch.utils.data import Dataset
 from tqdm import tqdm
@@ -328,3 +329,127 @@ class BaseDataSets(Dataset):
             return self._to_train_or_val_item(sample, idx)
 
         raise ValueError(f"Unsupported split: {self.split}")
+
+
+def _load_h5_sample(case, base_dir, task, target_h, target_w):
+    img_path = os.path.join(base_dir, "data", "images", f"{case}.h5")
+    if not os.path.exists(img_path):
+        raise FileNotFoundError(f"H5 image not found: {img_path}")
+
+    label_dir = get_task_label_dir(base_dir, task)
+    lab_path = os.path.join(base_dir, "data", label_dir, f"{case}.h5")
+    if not os.path.exists(lab_path):
+        raise FileNotFoundError(f"H5 label not found: {lab_path}")
+
+    with h5py.File(img_path, "r") as f:
+        img = f["image"][()].astype(np.float32)
+    with h5py.File(lab_path, "r") as f:
+        lab = f["label"][()].astype(np.uint8)
+
+    original_shape = np.array(lab.shape[:2], dtype=np.int64)
+    img = _resize_numpy_array(img, (target_h, target_w))
+    lab = _resize_numpy_array(lab, (target_h, target_w))
+    return {"image": img, "label": lab, "original_shape": original_shape}
+
+
+class H5DataSets(Dataset):
+    def __init__(
+        self,
+        base_dir=None,
+        split="train",
+        num=None,
+        transform=None,
+        ops_weak=None,
+        ops_strong=None,
+        fold=None,
+        max_workers=4,
+        resize_size=(224, 224),
+        num_classes=None,
+        normalize_method="imagenet",
+        sampling="none",
+        fold_map=None,
+        use_val=False,
+        for_inference=False,
+        task=None,
+    ):
+        self._base_dir = base_dir
+        self.split = split
+        self.transform = transform
+        self.ops_weak = ops_weak
+        self.ops_strong = ops_strong
+        self.fold = fold
+        self.resize_size = resize_size
+        self.num_classes = num_classes
+        self.normalize_method = normalize_method
+        self.sampling = sampling
+        self.fold_map = fold_map or {}
+        self.use_val = use_val
+        self.for_inference = for_inference
+        self.task = task
+        self.data_cache = {}
+
+        assert bool(ops_weak) == bool(ops_strong)
+        self.sample_list = _load_sample_list(self._base_dir, self.split, fold=self.fold, use_val=self.use_val)
+        self.sample_list = _apply_sample_selection(
+            self.sample_list, self.split, fold=self.fold,
+            fold_map=self.fold_map, num=num, sampling=self.sampling,
+        )
+        logger.info("H5DataSets total %d samples, preloading...", len(self.sample_list))
+        self._preload_samples()
+        logger.info("H5DataSets preloaded %d samples", len(self.data_cache))
+
+    def _preload_samples(self):
+        for idx, case in enumerate(self.sample_list):
+            self.data_cache[idx] = _load_h5_sample(
+                case, self._base_dir, self.task,
+                self.resize_size[0], self.resize_size[1],
+            )
+
+    def __len__(self):
+        return len(self.sample_list)
+
+    def __getitem__(self, idx):
+        case = self.sample_list[idx]
+        if idx in self.data_cache:
+            sample = {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in self.data_cache[idx].items()}
+        else:
+            sample = _load_h5_sample(
+                case, self._base_dir, self.task,
+                self.resize_size[0], self.resize_size[1],
+            )
+
+        if self.split in {"train", "val"}:
+            image, _, _ = self._normalize_inputs(sample["image"])
+            sample["image"] = image
+            if self.transform:
+                sample = self.transform(sample)
+            else:
+                sample = _build_tensor_sample(sample["image"], sample["label"])
+            sample["idx"] = idx
+            return sample
+
+        if self.split == "test" and self.for_inference:
+            image, _, _ = self._normalize_inputs(sample["image"])
+            sample["image"] = image
+            tensor_sample = _build_tensor_sample(image, sample["label"])
+            tensor_sample["case"] = case
+            tensor_sample["original_shape"] = sample.get("original_shape", np.array(sample["label"].shape[:2], dtype=np.int64))
+            tensor_sample["original_image"] = sample["image"].copy()
+            return tensor_sample
+
+        if self.split == "test":
+            image, _, _ = self._normalize_inputs(sample["image"])
+            sample["image"] = image
+            sample = _build_tensor_sample(sample["image"], sample["label"])
+            sample["idx"] = idx
+            return sample
+
+        raise ValueError(f"Unsupported split: {self.split}")
+
+    def _normalize_inputs(self, image, depth3=None, depth1=None):
+        image = _normalize_array(image, method=self.normalize_method)
+        if depth3 is not None:
+            depth3 = _normalize_array(depth3, method=self.normalize_method)
+        if depth1 is not None:
+            depth1 = _normalize_array(depth1, method=self.normalize_method)
+        return image, depth3, depth1

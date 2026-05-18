@@ -1,4 +1,4 @@
-from data.dataset import BaseDataSets
+from data.dataset import BaseDataSets, H5DataSets
 from data.samplers import OneStreamBatchSampler, TwoStreamBatchSampler
 from data.transforms import (
     RandomGenerator,
@@ -11,6 +11,7 @@ from data.transforms import (
 
 __all__ = [
     "BaseDataSets",
+    "H5DataSets",
     "OneStreamBatchSampler",
     "TwoStreamBatchSampler",
     "RandomGenerator",

@@ -256,13 +256,13 @@ def calculate_metric_percase(pred, gt, smooth=1e-6):
     gt = gt.astype(np.uint8)
     if pred.sum() == 0 and gt.sum() == 0:
         return {
-            'Dice': 1.0,
-            'IoU': 1.0,
+            'Dice': float('nan'),
+            'IoU': float('nan'),
             'TP': 0.0,
             'FP': 0.0,
             'FN': 0.0,
             'Acc': float((pred == gt).mean()),
-            'Valid': True,
+            'Valid': False,
         }
     intersection = np.logical_and(pred, gt).sum()
     union = np.logical_or(pred, gt).sum()
