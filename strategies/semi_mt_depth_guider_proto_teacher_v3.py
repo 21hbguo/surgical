@@ -37,8 +37,8 @@ class MTDepthGuiderProtoTeacherV3Strategy(BaseTrainingStrategy):
         parser.add_argument("--mi_loss_weight", type=float, default=0.01)
         parser.add_argument("--disentangle_dim", type=int, default=128)
 
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         if int(args.use_depth or 0) != 13:
             raise ValueError(
                 "mt_depth_guider_proto_teacher_v3 requires --use_depth 13 "
@@ -108,9 +108,10 @@ class MTDepthGuiderProtoTeacherV3Strategy(BaseTrainingStrategy):
         )
 
     def _create_branch_model(self, model):
-        sig = inspect.signature(type(model).__init__)
+        orig_model = getattr(model, "_orig_mod", model)
+        sig = inspect.signature(type(orig_model).__init__)
         init_kwargs = {}
-        model_params = getattr(model, "params", None)
+        model_params = getattr(orig_model, "params", None)
 
         if model_params is not None:
             for param_name, param in sig.parameters.items():
@@ -123,13 +124,13 @@ class MTDepthGuiderProtoTeacherV3Strategy(BaseTrainingStrategy):
         for param_name, param in sig.parameters.items():
             if param_name == "self":
                 continue
-            if param_name not in init_kwargs and hasattr(model, param_name):
-                init_kwargs[param_name] = getattr(model, param_name)
+            if param_name not in init_kwargs and hasattr(orig_model, param_name):
+                init_kwargs[param_name] = getattr(orig_model, param_name)
 
-        branch_model = type(model)(**init_kwargs)
-        branch_model.load_state_dict(model.state_dict(), strict=False)
-        if not hasattr(branch_model, "params") and hasattr(model, "params"):
-            branch_model.params = model.params
+        branch_model = type(orig_model)(**init_kwargs)
+        branch_model.load_state_dict(orig_model.state_dict(), strict=False)
+        if not hasattr(branch_model, "params") and hasattr(orig_model, "params"):
+            branch_model.params = orig_model.params
         return branch_model.to(self.device)
 
     def _extract_logits_and_feat(self, output):
@@ -373,22 +374,44 @@ class MTDepthGuiderProtoTeacherV3Strategy(BaseTrainingStrategy):
         self.proto_optimizer.zero_grad(set_to_none=True)
         self.disentangle_optimizer.zero_grad(set_to_none=True)
 
-        loss_dict = self.compute_loss(batch_data, iter_num, epoch)
-        loss_dict["total"].backward()
+        with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
+            loss_dict = self.compute_loss(batch_data, iter_num, epoch)
+        loss = loss_dict["total"]
 
-        if self.grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.depth_teacher_model.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.appearance_teacher_model.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.geometry_projector.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.appearance_projector.parameters(), max_norm=self.grad_clip)
-
-        self.optimizer.step()
-        self.depth_teacher_optimizer.step()
-        self.appearance_teacher_optimizer.step()
-        self.proto_optimizer.step()
-        self.disentangle_optimizer.step()
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+            if self.grad_clip > 0:
+                self.scaler.unscale_(self.optimizer)
+                self.scaler.unscale_(self.depth_teacher_optimizer)
+                self.scaler.unscale_(self.appearance_teacher_optimizer)
+                self.scaler.unscale_(self.proto_optimizer)
+                self.scaler.unscale_(self.disentangle_optimizer)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.depth_teacher_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.appearance_teacher_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.geometry_projector.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.appearance_projector.parameters(), max_norm=self.grad_clip)
+            self.scaler.step(self.optimizer)
+            self.scaler.step(self.depth_teacher_optimizer)
+            self.scaler.step(self.appearance_teacher_optimizer)
+            self.scaler.step(self.proto_optimizer)
+            self.scaler.step(self.disentangle_optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            if self.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.depth_teacher_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.appearance_teacher_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.geometry_projector.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.appearance_projector.parameters(), max_norm=self.grad_clip)
+            self.optimizer.step()
+            self.depth_teacher_optimizer.step()
+            self.appearance_teacher_optimizer.step()
+            self.proto_optimizer.step()
+            self.disentangle_optimizer.step()
         self._update_ema(iter_num)
         return loss_dict
 

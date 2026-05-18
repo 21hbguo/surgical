@@ -8,11 +8,13 @@ from utils.common import sigmoid_rampup
 
 
 class BaseTrainingStrategy:
-    def __init__(self, args, model, optimizer, device):
+    def __init__(self, args, model, optimizer, device, scaler=None):
         self.args = args
         self.model = model
         self.optimizer = optimizer
         self.device = device
+        self.scaler = scaler
+        self.amp_enabled = scaler is not None
         self.consistency = args.consistency
         self.grad_clip = args.grad_clip
         self.strong = args.strong
@@ -72,9 +74,10 @@ class BaseTrainingStrategy:
         return inspect.Parameter.empty
 
     def _create_ema_model(self, model):
-        sig = inspect.signature(type(model).__init__)
+        orig_model = getattr(model, "_orig_mod", model)
+        sig = inspect.signature(type(orig_model).__init__)
         init_kwargs = {}
-        model_params = getattr(model, "params", None)
+        model_params = getattr(orig_model, "params", None)
 
         if model_params is not None:
             for param_name, param in sig.parameters.items():
@@ -87,11 +90,11 @@ class BaseTrainingStrategy:
         for param_name, param in sig.parameters.items():
             if param_name == "self":
                 continue
-            if param_name not in init_kwargs and hasattr(model, param_name):
-                init_kwargs[param_name] = getattr(model, param_name)
+            if param_name not in init_kwargs and hasattr(orig_model, param_name):
+                init_kwargs[param_name] = getattr(orig_model, param_name)
 
-        ema_model = type(model)(**init_kwargs)
-        ema_model.load_state_dict(model.state_dict(), strict=False)
+        ema_model = type(orig_model)(**init_kwargs)
+        ema_model.load_state_dict(orig_model.state_dict(), strict=False)
         for param in ema_model.parameters():
             param.detach_()
         if not hasattr(ema_model, "params") and hasattr(model, "params"):
@@ -114,7 +117,8 @@ class BaseTrainingStrategy:
 
     def training_step(self, batch_data, iter_num=0, epoch=0):
         self.optimizer.zero_grad(set_to_none=True)
-        loss_dict = self.compute_loss(batch_data, iter_num, epoch)
+        with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
+            loss_dict = self.compute_loss(batch_data, iter_num, epoch)
         loss = loss_dict["total"]
         self._backward_and_step(loss, optimizer=self.optimizer)
         return loss_dict
@@ -123,12 +127,22 @@ class BaseTrainingStrategy:
         self, loss, optimizer=None, clip_params=None, clip_max_norm=None
     ):
         opt = optimizer if optimizer is not None else self.optimizer
-        loss.backward()
-        if self.grad_clip > 0:
-            params = clip_params if clip_params is not None else self.model.parameters()
-            max_norm = self.grad_clip if clip_max_norm is None else clip_max_norm
-            torch.nn.utils.clip_grad_norm_(params, max_norm=max_norm)
-        opt.step()
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+            if self.grad_clip > 0:
+                self.scaler.unscale_(opt)
+                params = clip_params if clip_params is not None else self.model.parameters()
+                max_norm = self.grad_clip if clip_max_norm is None else clip_max_norm
+                torch.nn.utils.clip_grad_norm_(params, max_norm=max_norm)
+            self.scaler.step(opt)
+            self.scaler.update()
+        else:
+            loss.backward()
+            if self.grad_clip > 0:
+                params = clip_params if clip_params is not None else self.model.parameters()
+                max_norm = self.grad_clip if clip_max_norm is None else clip_max_norm
+                torch.nn.utils.clip_grad_norm_(params, max_norm=max_norm)
+            opt.step()
 
     def validation_step(self, batch_data):
         with torch.no_grad():

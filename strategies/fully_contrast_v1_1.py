@@ -30,8 +30,8 @@ class FullyContrastV11Strategy(BaseTrainingStrategy):
         parser.add_argument("--contrast_min_pixels", type=int, default=8)
         parser.add_argument("--contrast_max_samples", type=int, default=64)
 
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         self.num_classes = int(args.num_classes)
         self.contrast_weight = float(args.contrast_loss_weight)
         self.temperature = float(args.contrast_temperature)

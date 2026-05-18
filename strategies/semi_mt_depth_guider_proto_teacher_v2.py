@@ -32,8 +32,8 @@ class MTDepthGuiderProtoTeacherV2Strategy(BaseTrainingStrategy):
         parser.add_argument("--proto_entropy_num_samples", type=int, default=1024)
         parser.add_argument("--depth_consistency_weight", type=float, default=0.5)
 
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         if int(args.use_depth or 0) != 13:
             raise ValueError(
                 "mt_depth_guider_proto_teacher_v2 requires --use_depth 13 "
@@ -73,9 +73,10 @@ class MTDepthGuiderProtoTeacherV2Strategy(BaseTrainingStrategy):
         self.contrastive_loss_model = losses.NTXentLoss(temperature=0.07).to(self.device)
 
     def _create_branch_model(self, model):
-        sig = inspect.signature(type(model).__init__)
+        orig_model = getattr(model, "_orig_mod", model)
+        sig = inspect.signature(type(orig_model).__init__)
         init_kwargs = {}
-        model_params = getattr(model, "params", None)
+        model_params = getattr(orig_model, "params", None)
 
         if model_params is not None:
             for param_name, param in sig.parameters.items():
@@ -88,13 +89,13 @@ class MTDepthGuiderProtoTeacherV2Strategy(BaseTrainingStrategy):
         for param_name, param in sig.parameters.items():
             if param_name == "self":
                 continue
-            if param_name not in init_kwargs and hasattr(model, param_name):
-                init_kwargs[param_name] = getattr(model, param_name)
+            if param_name not in init_kwargs and hasattr(orig_model, param_name):
+                init_kwargs[param_name] = getattr(orig_model, param_name)
 
-        branch_model = type(model)(**init_kwargs)
-        branch_model.load_state_dict(model.state_dict(), strict=False)
-        if not hasattr(branch_model, "params") and hasattr(model, "params"):
-            branch_model.params = model.params
+        branch_model = type(orig_model)(**init_kwargs)
+        branch_model.load_state_dict(orig_model.state_dict(), strict=False)
+        if not hasattr(branch_model, "params") and hasattr(orig_model, "params"):
+            branch_model.params = orig_model.params
         return branch_model.to(self.device)
 
     def _extract_logits(self, output):
@@ -258,17 +259,32 @@ class MTDepthGuiderProtoTeacherV2Strategy(BaseTrainingStrategy):
         self.depth_teacher_optimizer.zero_grad(set_to_none=True)
         self.proto_optimizer.zero_grad(set_to_none=True)
 
-        loss_dict = self.compute_loss(batch_data, iter_num, epoch)
-        loss_dict["total"].backward()
+        with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
+            loss_dict = self.compute_loss(batch_data, iter_num, epoch)
+        loss = loss_dict["total"]
 
-        if self.grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.depth_teacher_model.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
-
-        self.optimizer.step()
-        self.depth_teacher_optimizer.step()
-        self.proto_optimizer.step()
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+            if self.grad_clip > 0:
+                self.scaler.unscale_(self.optimizer)
+                self.scaler.unscale_(self.depth_teacher_optimizer)
+                self.scaler.unscale_(self.proto_optimizer)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.depth_teacher_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
+            self.scaler.step(self.optimizer)
+            self.scaler.step(self.depth_teacher_optimizer)
+            self.scaler.step(self.proto_optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            if self.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.depth_teacher_model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
+            self.optimizer.step()
+            self.depth_teacher_optimizer.step()
+            self.proto_optimizer.step()
         self._update_ema(iter_num)
         return loss_dict
 

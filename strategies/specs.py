@@ -167,9 +167,9 @@ def resolve_strategy_input_settings(way, root_path, task, use_depth=None):
     }
 
 
-def create_strategy(name, args, model, optimizer, device):
+def create_strategy(name, args, model, optimizer, device, scaler=None):
     strategy_cls = STRATEGY_REGISTRY[_canonicalize_strategy_name(name)]
-    return strategy_cls(args, model, optimizer, device)
+    return strategy_cls(args, model, optimizer, device, scaler=scaler)
 
 
 def add_strategy_args(parser, name):

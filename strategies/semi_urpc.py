@@ -4,8 +4,8 @@ from .base_strategy import BaseTrainingStrategy
 
 
 class URPCStrategy(BaseTrainingStrategy):
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         self.kl_loss = nn.KLDivLoss(reduction='none')
         self.labeled_bs = args.labeled_bs
 

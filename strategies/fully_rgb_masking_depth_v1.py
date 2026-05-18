@@ -24,8 +24,8 @@ class FullyRGBMaskingDepthV1Strategy(BaseTrainingStrategy):
     def add_args(parser):
         parser.add_argument("--rgb_masking_ratio", type=float, default=0.75)
 
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         repo_root = Path(__file__).resolve().parents[1]
         self.mask_ratio = float(args.rgb_masking_ratio)
         self.vis_path = repo_root / "outputs" / "fully_rgb_masking_depth_v1_complementary.png"

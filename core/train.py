@@ -3,7 +3,7 @@ import os
 import random
 import sys
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import torch
@@ -35,6 +35,7 @@ class TrainComponents:
     train_loader: DataLoader
     val_loader: DataLoader | None
     labeled_slice: int | float
+    scaler: torch.amp.GradScaler | None = None
 
 
 def create_dataloaders(args):
@@ -201,8 +202,15 @@ def _freeze_dinov3_backbone_if_needed(model, args, logger=None):
 def build_train_components(args, device, logger=None):
     model = create_model(args).to(device)
     _freeze_dinov3_backbone_if_needed(model, args, logger)
+    if args.compile:
+        model = torch.compile(model)
+        if logger:
+            logger.info("torch.compile enabled")
+    scaler = torch.amp.GradScaler(device) if args.amp else None
+    if scaler and logger:
+        logger.info("AMP enabled: GradScaler created")
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=0.0001)
-    strategy = create_strategy(args.way, args, model, optimizer, device)
+    strategy = create_strategy(args.way, args, model, optimizer, device, scaler=scaler)
     train_loader, val_loader, labeled_slice = create_dataloaders(args)
     return TrainComponents(
         model=model,
@@ -211,6 +219,7 @@ def build_train_components(args, device, logger=None):
         train_loader=train_loader,
         val_loader=val_loader,
         labeled_slice=labeled_slice,
+        scaler=scaler,
     )
 
 
@@ -342,8 +351,9 @@ class Trainer:
         is_depth_pretrain = self._is_depth_pretrain_strategy()
         metric_list = []
         self._set_eval_mode()
+        amp_enabled = self.args.amp
         try:
-            with torch.no_grad():
+            with torch.no_grad(), torch.amp.autocast(device_type=self.device.type, enabled=amp_enabled):
                 for _, batch_data in enumerate(self.val_loader):
                     self._set_eval_mode()
                     batch_data = self._process_batch(batch_data)

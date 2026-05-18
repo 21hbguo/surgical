@@ -71,7 +71,7 @@ def finalize_test_args(args):
 
 def format_args_for_logging(args):
     data = vars(args)
-    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
+    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
 
 
 class StrategyArgumentParser(argparse.ArgumentParser):
@@ -114,7 +114,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--snapshot_path", type=str, default=None)
     parser.add_argument("--result_root", type=str, default=result_root_default, help="current mode result root")
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--in_chns", type=int, default=None)
     parser.add_argument("--filter_num", type=int, default=16, help="filter number for UNet-family models")
     parser.add_argument("--resize_size", type=int, nargs=2, default=[224, 224])
@@ -142,8 +142,8 @@ def add_common_args(parser, result_root_default, test_mode=False):
 
 def add_train_args(parser):
     parser.add_argument("--labeled_num", type=float, default=10, help="Labeled percentage. Examples: 0.1=0.1%%, 1=1%%, 10=10%%.")
-    parser.add_argument("--labeled_bs", type=int, default=2)
-    parser.add_argument("--unlabeled_bs", type=int, default=2)
+    parser.add_argument("--labeled_bs", type=int, default=8)
+    parser.add_argument("--unlabeled_bs", type=int, default=8)
     parser.add_argument("--sampling", type=str, default="none", choices=["none", "interval"])
     parser.add_argument("--max_iterations", type=int, default=30000)
     parser.add_argument("--val_iter", type=int, default=300)
@@ -155,6 +155,8 @@ def add_train_args(parser):
     parser.add_argument("--lr_min_ratio", type=float, default=0.0)
     parser.add_argument("--use_checkpoint", action="store_true", default=False)
     parser.add_argument("--freeze", action="store_true", default=False)
+    parser.add_argument("--amp", action="store_true", default=True, help="Enable automatic mixed precision training")
+    parser.add_argument("--compile", action="store_true", default=True, help="Enable torch.compile for model acceleration")
     parser.add_argument("--debug", action="store_true", default=False)
     parser.add_argument("--no_val", action="store_true", default=False)
     parser.add_argument("--pth", type=str, default=None, choices=["best", "final", "latest"], help=argparse.SUPPRESS)

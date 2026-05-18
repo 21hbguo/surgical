@@ -28,8 +28,8 @@ class MTDepthGuiderProtoV1Strategy(BaseTrainingStrategy):
         parser.add_argument("--proto_entropy_temp", type=float, default=0.1)
         parser.add_argument("--proto_entropy_num_samples", type=int, default=1024)
 
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         if int(args.use_depth or 0) not in (1, 13):
             raise ValueError("mt_depth_guider_proto_v1 requires --use_depth 1 or 13 (depth1c guider input).")
         self._enable_ema_support()
@@ -159,13 +159,28 @@ class MTDepthGuiderProtoV1Strategy(BaseTrainingStrategy):
     def training_step(self, batch_data, iter_num, epoch=0):
         self.optimizer.zero_grad(set_to_none=True)
         self.proto_optimizer.zero_grad(set_to_none=True)
-        loss_dict = self.compute_loss(batch_data, iter_num, epoch)
-        loss_dict["total"].backward()
-        if self.grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
-        self.optimizer.step()
-        self.proto_optimizer.step()
+
+        with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
+            loss_dict = self.compute_loss(batch_data, iter_num, epoch)
+        loss = loss_dict["total"]
+
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+            if self.grad_clip > 0:
+                self.scaler.unscale_(self.optimizer)
+                self.scaler.unscale_(self.proto_optimizer)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
+            self.scaler.step(self.optimizer)
+            self.scaler.step(self.proto_optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            if self.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
+                torch.nn.utils.clip_grad_norm_(self.learnable_prototypes_model.parameters(), max_norm=self.grad_clip)
+            self.optimizer.step()
+            self.proto_optimizer.step()
         self._update_ema(iter_num)
         return loss_dict
 

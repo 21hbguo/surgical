@@ -15,8 +15,8 @@ class DepthGuidedMTStrategy(BaseTrainingStrategy):
         parser.add_argument("--depth_ssim_weight", type=float, default=0.5)
         parser.add_argument("--depth_range_weight", type=float, default=0.1)
 
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         self._enable_ema_support()
         self.consistency_start_iters = int(args.consistency_start_iters)
 

@@ -19,8 +19,8 @@ DEFAULT_USE_ASPP = False
 
 
 class DyConStrategy(BaseTrainingStrategy):
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         self._enable_ema_support()
         self.labeled_bs = args.labeled_bs
 

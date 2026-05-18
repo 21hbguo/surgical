@@ -4,8 +4,8 @@ import torch.nn.functional as F
 from .base_strategy import BaseTrainingStrategy
 
 class TernausNet16Strategy(BaseTrainingStrategy):
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
 
     def compute_loss(self, batch_data, iter_num=0, epoch=0):
         volume = batch_data["image"]

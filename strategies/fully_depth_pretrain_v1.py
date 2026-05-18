@@ -26,8 +26,8 @@ class FullyDepthPretrainStrategy(BaseTrainingStrategy):
         parser.add_argument("--depth_l1_weight", type=float, default=1.0)
         parser.add_argument("--depth_loss_weight", type=float, default=1.0)
 
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         self.mask_ratio = float(args.depth_pretrain_mask_ratio)
         self.l1_weight = float(args.depth_l1_weight)
         self.mse_weight = float(args.depth_loss_weight)

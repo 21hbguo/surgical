@@ -19,8 +19,8 @@ def gaussian_rampup(current, rampup_length):
 
 
 class W2SStrategy(BaseTrainingStrategy):
-    def __init__(self, args, model, optimizer, device):
-        super().__init__(args, model, optimizer, device)
+    def __init__(self, args, model, optimizer, device, scaler=None):
+        super().__init__(args, model, optimizer, device, scaler=scaler)
         self.contrastive_loss = CosineSimilarityContrastiveLoss(margin=DEFAULT_CONTRASTIVE_MARGIN, temperature=DEFAULT_CONTRASTIVE_TEMP)
         self.labeled_bs = args.labeled_bs
         self.max_iterations = args.max_iterations
