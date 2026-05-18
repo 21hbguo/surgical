@@ -23,6 +23,7 @@ from strategies import create_strategy
 from utils.lr_scheduler import build_lr_scheduler
 from utils.metrics import compute_dice_per_class, compute_depth_psnr_ssim
 from utils.common import patients_to_slices, setup_seed
+from utils.save_vars_to_csv import save_vars_to_csv
 
 warnings.filterwarnings("ignore", message=".*timm.models.layers.*")
 
@@ -238,6 +239,8 @@ class Trainer:
         self.has_val = val_loader is not None
         self.val_iter = args.val_iter if self.has_val else 0
         self.last_val_iter = -1
+        self.best_iter = 0
+        self.patience = int(args.max_iterations * args.early_stopping) if args.early_stopping > 0 else 0
         os.makedirs(self.snapshot_path, exist_ok=True)
         self.logger = logging.getLogger(__name__)
         self.lr_scheduler = build_lr_scheduler(self.strategy.optimizer, args)
@@ -280,6 +283,8 @@ class Trainer:
 
     def train(self):
         self.logger.info("Starting training for %d iterations", self.max_iterations)
+        if self.patience > 0:
+            self.logger.info("Early stopping enabled: patience=%d iterations (%.0f%% of max)", self.patience, self.args.early_stopping * 100)
         try:
             if len(self.train_loader) == 0:
                 raise RuntimeError(
@@ -330,6 +335,13 @@ class Trainer:
             self.iter_num += 1
             if self.has_val and self.val_iter > 0 and self.iter_num % self.val_iter == 0:
                 self._validate_and_save(epoch, loss_dict)
+                if self.patience > 0 and self.iter_num - self.best_iter >= self.patience:
+                    self.logger.info(
+                        "Early stopping: no improvement for %d iterations (patience=%d, best at iter %d).",
+                        self.iter_num - self.best_iter, self.patience, self.best_iter,
+                    )
+                    self.iter_num = self.max_iterations
+                    return epoch_loss / num_batches if num_batches > 0 else 0.0
             if self.iter_num >= self.max_iterations:
                 break
         return epoch_loss / num_batches if num_batches > 0 else 0.0
@@ -393,10 +405,24 @@ class Trainer:
 
         if current_metric >= self.best_performance and not np.isnan(current_metric):
             self.best_performance = current_metric
+            self.best_iter = self.iter_num
             self._save_model("best")
 
         self.logger.info("Iter %d: %s=%.4f%s Best=%.4f", self.iter_num, metric_name, current_metric, log_extra, self.best_performance)
         self.last_val_iter = self.iter_num
+
+        csv_path = os.path.join(self.snapshot_path, "metrics.csv")
+        train_loss = loss_dict.get("total", 0.0) if loss_dict else 0.0
+        if isinstance(train_loss, torch.Tensor):
+            train_loss = float(train_loss.detach().item())
+        csv_vars = {"train_loss": train_loss, "best": self.best_performance}
+        if is_depth_pretrain:
+            csv_vars["psnr"] = mean_psnr
+            csv_vars["ssim"] = mean_ssim
+        else:
+            csv_vars["dice"] = current_metric
+            csv_vars["best_dice"] = self.best_performance
+        save_vars_to_csv(csv_path, self.iter_num, **csv_vars)
 
     def _set_eval_mode(self):
         if hasattr(self.strategy, "eval"):
