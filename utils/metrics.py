@@ -87,13 +87,15 @@ def compute_depth_psnr_ssim(pred, target):
     pred = _ensure_depth3(pred)
     target = _ensure_depth3(target)
 
-    data_min = torch.min(target)
-    data_max = torch.max(target)
+    B = target.shape[0]
+    data_min = target.view(B, -1).min(dim=1).values
+    data_max = target.view(B, -1).max(dim=1).values
     data_range = (data_max - data_min).clamp(min=1e-6)
 
-    mse = F.mse_loss(pred, target)
-    psnr = 10.0 * torch.log10((data_range * data_range) / (mse + 1e-8))
-    ssim = _ssim(pred, target, data_range=float(data_range.detach().item()))
+    mse = ((pred - target) ** 2).view(B, -1).mean(dim=1)
+    psnr_per_sample = 10.0 * torch.log10((data_range * data_range) / (mse + 1e-8))
+    psnr = psnr_per_sample.mean()
+    ssim = _ssim(pred, target, data_range=float(data_range.mean().detach().item()))
 
     return {
         "psnr": float(psnr.detach().item()),

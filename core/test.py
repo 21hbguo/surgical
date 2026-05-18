@@ -421,8 +421,8 @@ def summarize_metrics(all_metrics, num_classes=2):
 
     summary = {}
     derived_metric_values = {
-        'Precision': [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 1.0 for item in valid_metrics],
-        'Recall': [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 1.0 for item in valid_metrics],
+        'Precision': [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in valid_metrics],
+        'Recall': [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in valid_metrics],
     }
     for summary_metric, _ in SUMMARY_METRIC_PAIRS:
         if summary_metric in derived_metric_values:
@@ -438,8 +438,8 @@ def summarize_metrics(all_metrics, num_classes=2):
         dice_vals = [item['Dice'] for item in class_metrics]
         iou_vals = [item['IoU'] for item in class_metrics]
         acc_vals = [item['Acc'] for item in class_metrics]
-        prec_vals = [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 1.0 for item in class_metrics]
-        rec_vals = [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 1.0 for item in class_metrics]
+        prec_vals = [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in class_metrics]
+        rec_vals = [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in class_metrics]
         summary[f'C{cls}_Dice'] = f'{np.mean(dice_vals):.4f} ± {np.std(dice_vals):.4f}'
         summary[f'C{cls}_IoU'] = f'{np.mean(iou_vals):.4f} ± {np.std(iou_vals):.4f}'
         summary[f'C{cls}_Precision'] = f'{np.mean(prec_vals):.4f} ± {np.std(prec_vals):.4f}'
