@@ -415,7 +415,7 @@ class Trainer:
         train_loss = loss_dict.get("total", 0.0) if loss_dict else 0.0
         if isinstance(train_loss, torch.Tensor):
             train_loss = float(train_loss.detach().item())
-        csv_vars = {"train_loss": train_loss, "best": self.best_performance}
+        csv_vars = {"train_loss": train_loss}
         if is_depth_pretrain:
             csv_vars["psnr"] = mean_psnr
             csv_vars["ssim"] = mean_ssim

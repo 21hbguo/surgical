@@ -155,7 +155,7 @@ class BaseTrainingStrategy:
     def _set_model_mode(self, training):
         self.model.train(mode=training)
         if self.ema_model is not None:
-            self.ema_model.train(mode=training)
+            self.ema_model.eval()
 
     def eval(self):
         self._set_model_mode(False)

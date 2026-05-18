@@ -27,6 +27,29 @@ def sparse_init_weight(model):
             m.bias.data.zero_()
     return model
 
+def _resolve_group_count(num_channels, max_groups=32):
+    upper = min(max_groups, num_channels)
+    for groups in range(upper, 0, -1):
+        if num_channels % groups == 0:
+            return groups
+    return 1
+
+def build_group_norm(num_channels, max_groups=32):
+    return nn.GroupNorm(_resolve_group_count(num_channels, max_groups=max_groups), num_channels)
+
+def replace_batchnorm2d_with_groupnorm(module, max_groups=32):
+    for name, child in list(module.named_children()):
+        if isinstance(child, nn.BatchNorm2d):
+            gn = build_group_norm(child.num_features, max_groups=max_groups)
+            if child.affine:
+                with torch.no_grad():
+                    gn.weight.copy_(child.weight)
+                    gn.bias.copy_(child.bias)
+            setattr(module, name, gn)
+        else:
+            replace_batchnorm2d_with_groupnorm(child, max_groups=max_groups)
+    return module
+
 class ConvBlock(nn.Module):
     """由两层卷积、归一化和激活组成的基础块。"""
 
@@ -34,11 +57,11 @@ class ConvBlock(nn.Module):
         super(ConvBlock, self).__init__()
         self.conv_conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
+            build_group_norm(out_channels),
             nn.LeakyReLU(),
             nn.Dropout(dropout_p),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
+            build_group_norm(out_channels),
             nn.LeakyReLU()
         )
 
@@ -313,10 +336,10 @@ class UNet_DYCON(nn.Module):
         bottleneck_ch = self.encoder.ft_chns[-1]
         self.proj = nn.Sequential(
             nn.Conv2d(bottleneck_ch, bottleneck_ch, kernel_size=1, bias=False),
-            nn.BatchNorm2d(bottleneck_ch),
+            build_group_norm(bottleneck_ch),
             nn.ReLU(inplace=True),
             nn.Conv2d(bottleneck_ch, proj_dim, kernel_size=1, bias=False),
-            nn.BatchNorm2d(proj_dim),
+            build_group_norm(proj_dim),
         )
 
     def forward(self, x):

@@ -91,6 +91,7 @@ class ResNetEncoder(nn.Module):
         else:
             self.encoder1_conv = resnet.conv1
 
+        dropout_probs = [0.0, 0.05, 0.1, 0.15, 0.2]
         self.encoder1_bn = resnet.bn1
         self.encoder1_relu = resnet.relu
         self.maxpool = resnet.maxpool
@@ -98,6 +99,7 @@ class ResNetEncoder(nn.Module):
         self.encoder3 = resnet.layer2
         self.encoder4 = resnet.layer3
         self.encoder5 = resnet.layer4
+        # self.dropout_layers = nn.ModuleList([nn.Dropout2d(p=p) for p in dropout_probs])
 
     def forward(self, x):
         e1 = self.encoder1_conv(x)
@@ -108,6 +110,11 @@ class ResNetEncoder(nn.Module):
         e3 = self.encoder3(e2)
         e4 = self.encoder4(e3)
         e5 = self.encoder5(e4)
+        # e1 = self.dropout_layers[0](e1)
+        # e2 = self.dropout_layers[1](e2)
+        # e3 = self.dropout_layers[2](e3)
+        # e4 = self.dropout_layers[3](e4)
+        # e5 = self.dropout_layers[4](e5)
         return e1, e2, e3, e4, e5
 
 class ConvBlock(nn.Module):

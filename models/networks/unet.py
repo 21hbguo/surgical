@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .block.common_block import FeaturePerturbation
-from .block.unet_block import ConvBlock, DownBlock, Encoder, Decoder, Decoder_URPC, UpBlock
+from .block.unet_block import ConvBlock, DownBlock, Encoder, Decoder, Decoder_URPC, UpBlock, build_group_norm, replace_batchnorm2d_with_groupnorm
 
 
 class DepthGuider(nn.Module):
@@ -232,6 +232,7 @@ class DepthGuiderV3(nn.Module):
         nn.init.constant_(self.local_beta.bias, 0)
         nn.init.constant_(self.local_gate[3].weight, 0)
         nn.init.constant_(self.local_gate[3].bias, 0)
+        replace_batchnorm2d_with_groupnorm(self)
 
     def forward(self, rgb_feat, depth):
         b, c, h, w = rgb_feat.shape
@@ -275,7 +276,7 @@ class ProjectionHeadContrastV1(nn.Module):
         super().__init__()
         self.layers = nn.Sequential(
             nn.Conv2d(in_channels, in_channels, kernel_size=1, bias=False),
-            nn.BatchNorm2d(in_channels),
+            build_group_norm(in_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels, feature_dim, kernel_size=1, bias=True),
         )
@@ -488,6 +489,7 @@ class ASPP2D(nn.Module):
         self.conv1 = nn.Conv2d(out_channels * 5, out_channels, 1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU()
+        replace_batchnorm2d_with_groupnorm(self)
 
     def forward(self, x):
         x1 = self.aspp1(x)
@@ -530,17 +532,14 @@ class UNet_DyCON(nn.Module):
             self.aspp = ASPP2D(filters[4], filters[4], output_stride=16)
         self.projection = nn.Sequential(
             nn.Conv2d(filters[4], 512, kernel_size=1),
-            nn.BatchNorm2d(512),
+            build_group_norm(512),
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 256, kernel_size=1),
-            nn.BatchNorm2d(256)
+            build_group_norm(256),
         )
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
 
     def encode(self, x):
         conv1 = self.conv1(x)
