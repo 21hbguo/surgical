@@ -59,12 +59,12 @@ class CoordLoss(nn.Module):
             return output.new_tensor(0.0)
         loss = (loss_per_class * gt_active).sum() / (gt_active.sum() + self.eps)
         return loss
-
-
+    
 class DiceLoss(nn.Module):
     def __init__(self, n_classes):
         super(DiceLoss, self).__init__()
         self.n_classes = n_classes
+        self.smooth = 1e-5
 
     def _one_hot_encoder(self, input_tensor):
         if input_tensor.dim() == 4:
@@ -75,28 +75,20 @@ class DiceLoss(nn.Module):
             .float()
         )
 
-    def _dice_loss(self, score, target):
-        target = target.float()
-        smooth = 1e-5
-        intersect = torch.sum(score * target)
-        y_sum = torch.sum(target * target)
-        z_sum = torch.sum(score * score)
-        loss = (2 * intersect + smooth) / (z_sum + y_sum + smooth)
-        return 1 - loss
-
-    def forward(self, inputs, target, weight=None, softmax=False):
+    def forward(self, inputs, target, softmax=False):
         if softmax:
             inputs = torch.softmax(inputs, dim=1)
         target = self._one_hot_encoder(target)
-        if weight is None:
-            weight = [1] * self.n_classes
         assert inputs.size() == target.size()
-        loss = 0.0
-        for i in range(0, self.n_classes):
-            dice = self._dice_loss(inputs[:, i], target[:, i])
-            loss += dice * weight[i]
-        return loss / self.n_classes
 
+        inputs_flat = inputs.reshape(-1, self.n_classes)
+        target_flat = target.reshape(-1, self.n_classes)
+
+        intersection = (inputs_flat * target_flat).sum(0)
+        cardinality = inputs_flat.sum(0) + target_flat.sum(0)
+
+        dice_score = (2.0 * intersection + self.smooth) / (cardinality + self.smooth)
+        return 1 - dice_score.mean()
 
 def softmax_mse_loss(input_logits, target_logits, sigmoid=False):
     assert input_logits.size() == target_logits.size()

@@ -242,6 +242,10 @@ class Trainer:
         self.best_iter = 0
         self.patience = int(args.max_iterations * args.early_stopping) if args.early_stopping > 0 else 0
         os.makedirs(self.snapshot_path, exist_ok=True)
+        for old_csv in ("metrics.csv", "metrics_plot.png"):
+            old_path = os.path.join(self.snapshot_path, old_csv)
+            if os.path.exists(old_path):
+                os.remove(old_path)
         self.logger = logging.getLogger(__name__)
         self.lr_scheduler = build_lr_scheduler(self.strategy.optimizer, args)
         self.logger.info(f"LR Scheduler: {args.lr_scheduler}, Warmup: {args.lr_warmup_iters} iters")
