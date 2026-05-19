@@ -124,7 +124,8 @@ class DyConStrategy(BaseTrainingStrategy):
 
     def training_step(self, batch_data, iter_num, epoch=0):
         self.optimizer.zero_grad(set_to_none=True)
-        loss_dict = self.compute_loss(batch_data, iter_num, epoch)
+        with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
+            loss_dict = self.compute_loss(batch_data, iter_num, epoch)
         self._backward_and_step(
             loss_dict['total'],
             optimizer=self.optimizer,
