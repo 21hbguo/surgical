@@ -47,7 +47,7 @@ TEST_NUM_WORKERS = 4
 
 def build_test_feature_parser():
     parser = build_test_parser()
-    parser.add_argument("--feat_vis", type=int, default=1, choices=[0, 1], help="enable feature map visualization")
+    parser.add_argument("--feat_vis", type=int, default=0, choices=[0, 1], help="enable feature map visualization")
     parser.add_argument("--feat_vis_method", type=str, default="gradcam", choices=["gradcam"], help="feature visualization method")
     parser.add_argument("--feat_vis_layer", type=str, default="", help="name filter for feature/gradcam layers")
     parser.add_argument("--feat_vis_all_layers", type=int, default=1, choices=[0, 1], help="aggregate all matched layers for gradcam")

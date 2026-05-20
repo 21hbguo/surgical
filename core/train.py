@@ -12,7 +12,6 @@ from tqdm import tqdm
 
 from core.args import build_train_parser, finalize_train_args, format_args_for_logging
 from core.runtime import (
-    existing_train_checkpoints,
     resolve_device,
     resolve_train_folds,
     resolve_train_run_args,
@@ -473,6 +472,7 @@ def setup_logging(snapshot_path):
         logging.root.removeHandler(handler)
     logging.basicConfig(
         filename=os.path.join(snapshot_path, "log.txt"),
+        filemode="w",
         level=logging.INFO,
         format="[%(asctime)s.%(msecs)03d] %(message)s",
         datefmt="%H:%M:%S",
@@ -490,20 +490,14 @@ def main():
         run_args = resolve_train_run_args(args, fold)
 
         if os.path.exists(run_args.snapshot_path):
-            existing_checkpoints = existing_train_checkpoints(run_args.snapshot_path, run_args.no_val)
-            expected_count = 1 if run_args.no_val else 2
-            if len(existing_checkpoints) == expected_count:
+            if not run_args.retrain:
                 fold_info = f"f{run_args.fold}" if run_args.fold is not None else "no fold"
-                logging.warning("Checkpoints already exist: %s", ", ".join(existing_checkpoints))
-                logging.warning("Fold: %s, Skip training.", fold_info)
+                logging.warning("Snapshot path exists: %s, fold=%s, skip training unless --retrain is set.", run_args.snapshot_path, fold_info)
                 continue
-            if existing_checkpoints:
-                fold_info = f"f{run_args.fold}" if run_args.fold is not None else "no fold"
-                logging.info(
-                    "Partial checkpoints found: %s, continuing training on %s",
-                    ", ".join(existing_checkpoints),
-                    fold_info,
-                )
+            for filename in ("model_best.pth", "model_final.pth"):
+                path = os.path.join(run_args.snapshot_path, filename)
+                if os.path.exists(path):
+                    os.remove(path)
 
         os.makedirs(run_args.snapshot_path, exist_ok=True)
         logger = setup_logging(run_args.snapshot_path)

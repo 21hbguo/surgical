@@ -2,38 +2,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .block.common_block import DepthGuider
 from .block.resnetunet_block import ConvBlock, DecoderBlock, DecoderBlock_W2S, ResNetDecoder_W2S, ResNetEncoder, build_group_norm, replace_batchnorm2d_with_groupnorm
 from .block.unet_block import Dropout, FeatureDropout, FeatureNoise
-
-class DepthGuider(nn.Module):
-    def __init__(self, in_channels, depth_channels=1):
-        super().__init__()
-        mid = max(16, in_channels // 2)
-        self.depth_encoder = nn.Sequential(
-            nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1),
-            build_group_norm(mid),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid, mid, kernel_size=3, padding=1),
-            nn.AdaptiveAvgPool2d(1) # 全局池化，得到全局深度向量
-        )
-        
-        self.fc_gamma = nn.Linear(mid, in_channels)
-        self.fc_beta = nn.Linear(mid, in_channels)
-        
-        nn.init.constant_(self.fc_gamma.weight, 0)
-        nn.init.constant_(self.fc_gamma.bias, 1)
-        nn.init.constant_(self.fc_beta.weight, 0)
-        nn.init.constant_(self.fc_beta.bias, 0)
-
-    def forward(self, rgb_feat, depth):
-        B, C, H, W = rgb_feat.shape
-        if depth.shape[2:] != rgb_feat.shape[2:]:
-            depth = F.interpolate(depth, size=rgb_feat.shape[2:], mode='bilinear', align_corners=False)
-        depth_feat = self.depth_encoder(depth).view(B, -1)
-        gamma = self.fc_gamma(depth_feat).view(B, C, 1, 1)
-        beta = self.fc_beta(depth_feat).view(B, C, 1, 1)
-        modulated_feat = gamma * rgb_feat + beta
-        return modulated_feat + rgb_feat
 
 class DepthGuiderV2(nn.Module):
     def __init__(self, in_channels, depth_channels=1):

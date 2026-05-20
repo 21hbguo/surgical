@@ -71,7 +71,7 @@ def finalize_test_args(args):
 
 def format_args_for_logging(args):
     data = vars(args)
-    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
+    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping", "retrain"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
 
 
 class StrategyArgumentParser(argparse.ArgumentParser):
@@ -154,6 +154,7 @@ def add_train_args(parser):
     parser.add_argument("--lr_warmup_ratio", type=float, default=0)
     parser.add_argument("--lr_min_ratio", type=float, default=0)
     parser.add_argument("--use_checkpoint", action="store_true", default=False)
+    parser.add_argument("--retrain", action="store_true", default=False)
     parser.add_argument("--freeze", action="store_true", default=False)
     parser.add_argument("--amp", action="store_true", default=True, help="Enable automatic mixed precision training")
     parser.add_argument("--compile", action="store_true", default=True, help="Enable torch.compile for model acceleration")
@@ -168,7 +169,7 @@ def add_test_args(parser):
     parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"])
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--checkpoint-type", "--pth", "--pth_type", dest="requested_checkpoint_type", type=str, default="best", choices=["best", "final", "latest"])
-    parser.add_argument("--rgb", type=int, default=2, choices=[0, 1, 2], help="0=off, 1=pred overlay, 2=label/pred side-by-side overlays")
+    parser.add_argument("--rgb", type=int, default=0, choices=[0, 1, 2], help="0=off, 1=pred overlay, 2=label/pred side-by-side overlays")
     parser.add_argument("--no_val", action="store_true", default=False)
     parser.add_argument("--train_result_root", type=str, default="../result_train", help="train checkpoint root used by test")
 

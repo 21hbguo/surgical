@@ -25,14 +25,13 @@ warnings.filterwarnings('ignore', message='.*timm.models.layers.*')
 TEST_NUM_WORKERS = 4
 LAYER_NAMES = ['e1', 'e2', 'e3', 'e4', 'e5']
 HEATMAP_SIZE = 112
-BAR_WIDTH = 160
-BAR_HEIGHT = 112
 
 
 def build_gamma_beta_parser():
     parser = build_test_parser()
     parser.add_argument("--vis_max_cases", type=int, default=5, help="max cases to visualize")
     parser.add_argument("--vis_output_dir", type=str, default=None, help="output dir override")
+    parser.add_argument("--vis_topk_channels", type=int, default=0, help="deprecated; per-layer channel visualization always exports all channels")
     return parser
 
 
@@ -112,9 +111,13 @@ def _build_test_loader(args, fold, fold_map):
         fold_map=fold_map, use_val=False, for_inference=True,
         is_depth=is_depth, task=args.task,
     )
+    loader_generator = torch.Generator()
+    loader_seed = int(args.seed) + (0 if fold is None else int(fold))
+    loader_generator.manual_seed(loader_seed)
     test_loader = DataLoader(
-        test_dataset, batch_size=args.batch_size, shuffle=False,
+        test_dataset, batch_size=args.batch_size, shuffle=True,
         num_workers=TEST_NUM_WORKERS, pin_memory=True, collate_fn=_collate_test_batch,
+        generator=loader_generator,
     )
     return test_dataset, test_loader, is_depth, depth_channels
 
@@ -171,31 +174,52 @@ def _patch_depth_guiders(guiders):
     for idx, guider in enumerate(guiders):
         orig_fwd = original_forwards[idx]
         layer_idx = idx
-        has_fc = hasattr(guider, 'fc_gamma') and hasattr(guider, 'fc_beta')
+        has_delta = hasattr(guider, 'compute_delta')
+        has_affine = hasattr(guider, 'compute_gamma_beta')
 
-        if has_fc:
-            fc_gamma = guider.fc_gamma
-            fc_beta = guider.fc_beta
-            depth_enc = guider.depth_encoder
-
-            def make_patched_fc(orig, li, enc, g_mod, b_mod):
+        if has_delta:
+            def make_patched_delta(orig, li, guider_mod):
                 def patched(rgb_feat, depth):
-                    B, C, H, W = rgb_feat.shape
-                    if depth.shape[2:] != (H, W):
-                        depth = F.interpolate(depth, size=(H, W), mode='bilinear', align_corners=False)
                     depth_zero = torch.zeros_like(depth)
-                    depth_feat = enc(depth).view(B, -1)
-                    depth_feat_zero = enc(depth_zero).view(B, -1)
-                    gamma = g_mod(depth_feat).view(B, C, 1, 1)
-                    beta = b_mod(depth_feat).view(B, C, 1, 1)
-                    gamma_zero = g_mod(depth_feat_zero).view(B, C, 1, 1)
-                    beta_zero = b_mod(depth_feat_zero).view(B, C, 1, 1)
-                    modulated_feat = gamma * rgb_feat + beta
-                    modulated_feat_zero = gamma_zero * rgb_feat + beta_zero
-                    output = modulated_feat + rgb_feat
-                    output_zero = modulated_feat_zero + rgb_feat
+                    delta = guider_mod.compute_delta(rgb_feat, depth)
+                    delta_zero = guider_mod.compute_delta(rgb_feat, depth_zero)
+                    output = rgb_feat + delta
+                    output_zero = rgb_feat + delta_zero
                     records.append({
                         'layer_idx': li,
+                        'vis_mode': 'delta',
+                        'feat_in': rgb_feat.detach().cpu(),
+                        'feat_mod': delta.detach().cpu(),
+                        'feat_out': output.detach().cpu(),
+                        'feat_out_zero': output_zero.detach().cpu(),
+                        'feat_delta_depth': (output - output_zero).detach().cpu(),
+                        'delta': delta.detach().cpu(),
+                        'delta_zero': delta_zero.detach().cpu(),
+                        'delta_diff': (delta - delta_zero).detach().cpu(),
+                        'gamma': None,
+                        'beta': None,
+                        'gamma_zero': None,
+                        'beta_zero': None,
+                        'gamma_delta': None,
+                        'beta_delta': None,
+                    })
+                    return output
+                return patched
+
+            guider.forward = make_patched_delta(orig_fwd, layer_idx, guider)
+        elif has_affine:
+            def make_patched_fc(orig, li, guider_mod):
+                def patched(rgb_feat, depth):
+                    depth_zero = torch.zeros_like(depth)
+                    gamma, beta = guider_mod.compute_gamma_beta(rgb_feat, depth)
+                    gamma_zero, beta_zero = guider_mod.compute_gamma_beta(rgb_feat, depth_zero)
+                    modulated_feat = gamma * rgb_feat + beta
+                    modulated_feat_zero = gamma_zero * rgb_feat + beta_zero
+                    output = rgb_feat + modulated_feat
+                    output_zero = rgb_feat + modulated_feat_zero
+                    records.append({
+                        'layer_idx': li,
+                        'vis_mode': 'affine',
                         'feat_in': rgb_feat.detach().cpu(),
                         'feat_mod': modulated_feat.detach().cpu(),
                         'feat_out': output.detach().cpu(),
@@ -211,7 +235,7 @@ def _patch_depth_guiders(guiders):
                     return output
                 return patched
 
-            guider.forward = make_patched_fc(orig_fwd, layer_idx, depth_enc, fc_gamma, fc_beta)
+            guider.forward = make_patched_fc(orig_fwd, layer_idx, guider)
         else:
             def make_patched_simple(orig, li):
                 def patched(rgb_feat, depth):
@@ -219,6 +243,7 @@ def _patch_depth_guiders(guiders):
                     output_zero = orig(rgb_feat, torch.zeros_like(depth))
                     records.append({
                         'layer_idx': li,
+                        'vis_mode': 'simple',
                         'feat_in': rgb_feat.detach().cpu(),
                         'feat_mod': output.detach().cpu(),
                         'feat_out': output.detach().cpu(),
@@ -250,9 +275,9 @@ def _heatmap_to_rgb(heatmap):
     return cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
 
 
-def _diff_to_rgb(diff_2d, size=HEATMAP_SIZE):
+def _diff_to_rgb(diff_2d, size=HEATMAP_SIZE, vmax_override=None):
     diff_resized = cv2.resize(diff_2d.astype(np.float32), (size, size), interpolation=cv2.INTER_LINEAR)
-    vmax = max(abs(diff_resized.min()), abs(diff_resized.max()))
+    vmax = float(vmax_override) if vmax_override is not None else max(abs(diff_resized.min()), abs(diff_resized.max()))
     if vmax < 1e-8:
         return np.ones((size, size, 3), dtype=np.uint8) * 255
     norm = diff_resized / vmax
@@ -308,46 +333,22 @@ def _feat_to_heatmap_shared(feat_tensors, size=HEATMAP_SIZE):
     return [cv2.resize((m - vmin) / denom, (size, size), interpolation=cv2.INTER_LINEAR) for m in maps]
 
 
-def _make_bar_chart(values, title, compare_values=None, width=BAR_WIDTH, height=BAR_HEIGHT):
-    fig, ax = plt.subplots(1, 1, figsize=(width / 100, height / 100), dpi=100)
-    n = len(values)
-    x = np.arange(n)
-    if compare_values is None:
-        colors = ['#2196F3' if v >= 0 else '#F44336' for v in values]
-        ax.bar(x, values, color=colors, width=0.8)
-    else:
-        compare_values = np.asarray(compare_values)
-        bar_w = 0.38
-        ax.bar(x - bar_w / 2, values, color='#1E88E5', width=bar_w, label='real')
-        ax.bar(x + bar_w / 2, compare_values, color='#FB8C00', width=bar_w, alpha=0.85, label='zero')
-        ax.legend(loc='lower right', fontsize=4, frameon=False, borderaxespad=0.1, handlelength=1.2)
-    ax.set_title(title, fontsize=7, pad=2)
-    ax.tick_params(labelsize=5)
-    ax.set_xlim(-0.5, n - 0.5)
-    mean_val = np.mean(values)
-    std_val = np.std(values)
-    if compare_values is None:
-        ax.axhline(y=mean_val, color='green', linestyle='--', linewidth=0.5)
-        text = f'mean={mean_val:.3f}\nstd={std_val:.3f}'
-    else:
-        delta = values - compare_values
-        text = f'r={mean_val:.3f}\nz={np.mean(compare_values):.3f}\n|d|={np.mean(np.abs(delta)):.3f}'
-    ax.text(0.02, 0.95, text, transform=ax.transAxes, fontsize=5, va='top',
-            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8))
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    fig.tight_layout(pad=0.3)
-    fig.canvas.draw()
-    img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy()
-    plt.close(fig)
-    return img
+def _reduce_channel_values(feat):
+    if feat is None:
+        return None
+    values = feat[0].numpy()
+    if values.ndim == 1:
+        return values
+    if values.ndim == 3:
+        return values.mean(axis=(1, 2))
+    return values.reshape(values.shape[0], -1).mean(axis=1)
 
 
 def _make_header(total_width):
     header_h = 40
     header = np.ones((header_h, total_width, 3), dtype=np.uint8) * 255
-    labels = ['RGB', 'Depth', 'Feat_in', 'Feat_out', 'Feat_zero', 'Depth_eff_abs', 'Gamma(r/z)', 'Beta(r/z)']
-    col_widths = [HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, BAR_WIDTH, BAR_WIDTH]
+    labels = ['RGB', 'Depth', 'Feat_in', 'Feat_out', 'Delta']
+    col_widths = [HEATMAP_SIZE] * len(labels)
     x_offset = 0
     for label, w in zip(labels, col_widths):
         cx = x_offset + w // 2
@@ -358,20 +359,20 @@ def _make_header(total_width):
     return header
 
 
+def _signed_map_to_rgb(feat_2d, size=HEATMAP_SIZE):
+    return _diff_to_rgb(feat_2d, size)
+
+
+def _unsigned_map_to_rgb(feat_2d, size=HEATMAP_SIZE):
+    return _effect_to_rgb(feat_2d, size)
+
+
 def _make_layer_row(record, rgb_img, depth_img, layer_idx):
     feat_in_t = record['feat_in'][0]
     feat_out_t = record['feat_out'][0]
-    feat_out_zero_t = record['feat_out_zero'][0]
-    feat_in_map, feat_out_map, feat_zero_map = _feat_to_heatmap_shared([feat_in_t, feat_out_t, feat_out_zero_t])
+    feat_in_map, feat_out_map = _feat_to_heatmap_shared([feat_in_t, feat_out_t])
     feat_in_bgr = _heatmap_to_rgb(feat_in_map)
     feat_out_bgr = _heatmap_to_rgb(feat_out_map)
-    feat_zero_bgr = _heatmap_to_rgb(feat_zero_map)
-    effect = record['feat_delta_depth'][0].abs().mean(dim=0).numpy().astype(np.float32)
-    effect_bgr = _effect_to_rgb(effect, HEATMAP_SIZE)
-    eff_mean = float(record['feat_delta_depth'][0].abs().mean().item())
-    eff_rel = eff_mean / (float(feat_in_t.abs().mean().item()) + 1e-8)
-    cv2.putText(effect_bgr, f'm={eff_mean:.4f}', (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
-    cv2.putText(effect_bgr, f'r={eff_rel:.3f}', (4, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
 
     rgb_resized = cv2.resize(rgb_img, (HEATMAP_SIZE, HEATMAP_SIZE))
     if len(rgb_resized.shape) == 2:
@@ -385,28 +386,34 @@ def _make_layer_row(record, rgb_img, depth_img, layer_idx):
     else:
         depth_vis = depth_resized
 
-    gamma = record['gamma']
-    gamma_zero = record['gamma_zero']
-    beta = record['beta']
-    beta_zero = record['beta_zero']
-    if gamma is not None and gamma.ndim >= 2:
-        gamma_vals = gamma[0].squeeze().numpy()
-        gamma_zero_vals = gamma_zero[0].squeeze().numpy()
+    vis_mode = record.get('vis_mode', 'affine')
+    if vis_mode == 'delta':
+        delta_map = record['delta'][0].mean(dim=0).numpy().astype(np.float32)
+        delta_view = _signed_map_to_rgb(delta_map, HEATMAP_SIZE)
+        eff_tensor = record['delta'][0]
+        eff_mean = float(eff_tensor.abs().mean().item())
+        eff_std = float(eff_tensor.std().item())
+        eff_maxabs = float(eff_tensor.abs().max().item())
+        eff_rel = eff_mean / (float(feat_in_t.abs().mean().item()) + 1e-8)
+        cv2.putText(delta_view, f'm={float(delta_map.mean()):+.4f}', (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'std={eff_std:.4f}', (4, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'max={eff_maxabs:.4f}', (4, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'|delta|={eff_mean:.4f}', (4, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'r={eff_rel:.3f}', (4, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
     else:
-        gamma_vals = np.zeros(1)
-        gamma_zero_vals = np.zeros(1)
-    if beta is not None and beta.ndim >= 2:
-        beta_vals = beta[0].squeeze().numpy()
-        beta_zero_vals = beta_zero[0].squeeze().numpy()
-    else:
-        beta_vals = np.zeros(1)
-        beta_zero_vals = np.zeros(1)
-
-    C = len(gamma_vals)
-    gamma_img = _make_bar_chart(gamma_vals, f'L{layer_idx} gamma (C={C})', compare_values=gamma_zero_vals)
-    beta_img = _make_bar_chart(beta_vals, f'L{layer_idx} beta (C={C})', compare_values=beta_zero_vals)
-
-    row = np.hstack([rgb_resized, depth_vis, feat_in_bgr, feat_out_bgr, feat_zero_bgr, effect_bgr, gamma_img, beta_img])
+        delta_map = record['feat_delta_depth'][0].mean(dim=0).numpy().astype(np.float32)
+        delta_view = _signed_map_to_rgb(delta_map, HEATMAP_SIZE)
+        eff_tensor = record['feat_delta_depth'][0]
+        eff_mean = float(eff_tensor.abs().mean().item())
+        eff_std = float(eff_tensor.std().item())
+        eff_maxabs = float(eff_tensor.abs().max().item())
+        eff_rel = eff_mean / (float(feat_in_t.abs().mean().item()) + 1e-8)
+        cv2.putText(delta_view, f'm={float(delta_map.mean()):+.4f}', (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'std={eff_std:.4f}', (4, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'max={eff_maxabs:.4f}', (4, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'|delta|={eff_mean:.4f}', (4, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(delta_view, f'r={eff_rel:.3f}', (4, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+    row = np.hstack([rgb_resized, depth_vis, feat_in_bgr, feat_out_bgr, delta_view])
     return row
 
 
@@ -415,7 +422,7 @@ def visualize_gamma_beta(rgb_img, depth_img, records, save_path):
         return
     records.sort(key=lambda r: r['layer_idx'])
 
-    total_width = 6 * HEATMAP_SIZE + 2 * BAR_WIDTH
+    total_width = 5 * HEATMAP_SIZE
     header = _make_header(total_width)
     rows = [header]
     for rec in records:
@@ -432,25 +439,20 @@ def _save_per_channel_vis(record, output_dir, case_name):
     layer_idx = record['layer_idx']
     feat_in = record['feat_in'][0]
     feat_out = record['feat_out'][0]
-    feat_out_zero = record['feat_out_zero'][0]
     C = feat_in.shape[0]
-    n_show = C
+    delta_np = record['delta'][0].numpy().astype(np.float32) if record.get('delta') is not None else record['feat_delta_depth'][0].numpy().astype(np.float32)
+    score = np.abs(delta_np).mean(axis=(1, 2))
+    order = np.argsort(-score)
+    indices = order[:C]
+    n_show = len(indices)
 
     feat_in_np = feat_in.numpy().astype(np.float32)
     feat_out_np = feat_out.numpy().astype(np.float32)
-    feat_out_zero_np = feat_out_zero.numpy().astype(np.float32)
-    diff_np = feat_out_np - feat_out_zero_np
-
-    gamma_vals = record['gamma'][0].squeeze().numpy() if record['gamma'] is not None else None
-    beta_vals = record['beta'][0].squeeze().numpy() if record['beta'] is not None else None
-    gamma_zero_vals = record['gamma_zero'][0].squeeze().numpy() if record['gamma_zero'] is not None else None
-    beta_zero_vals = record['beta_zero'][0].squeeze().numpy() if record['beta_zero'] is not None else None
-    gamma_delta_vals = record['gamma_delta'][0].squeeze().numpy() if record['gamma_delta'] is not None else None
-    beta_delta_vals = record['beta_delta'][0].squeeze().numpy() if record['beta_delta'] is not None else None
+    shared_delta_vmax = float(np.max(np.abs(delta_np[indices]))) if n_show > 0 else 0.0
 
     cell_h = cell_w = 64
-    text_w = 300
-    n_cols = 4
+    text_w = 220
+    n_cols = 3
     header_h = 30
     canvas = np.ones((header_h + n_show * cell_h, n_cols * cell_w + text_w, 3), dtype=np.uint8) * 255
 
@@ -461,13 +463,15 @@ def _save_per_channel_vis(record, output_dir, case_name):
 
     _put_center('feat_in', 0, 22)
     _put_center('feat_out', 1, 22)
-    _put_center('feat_zero', 2, 22)
-    _put_center('depth_eff', 3, 22)
-    cv2.putText(canvas, 'g/b real zero delta', (n_cols * cell_w + 10, 22),
+    _put_center('delta', 2, 22)
+    detail_title = 'all channels sorted by |delta|'
+    cv2.putText(canvas, detail_title, (n_cols * cell_w + 10, 22),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+    cv2.putText(canvas, f'shared_vmax={shared_delta_vmax:.4f}', (n_cols * cell_w + 10, 38),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.35, (64, 64, 64), 1)
 
-    for ch in range(n_show):
-        cell_maps = [feat_in_np[ch], feat_out_np[ch], feat_out_zero_np[ch]]
+    for row_idx, ch in enumerate(indices):
+        cell_maps = [feat_in_np[ch], feat_out_np[ch]]
         vmin = min(m.min() for m in cell_maps)
         vmax = max(m.max() for m in cell_maps)
         denom = vmax - vmin
@@ -477,28 +481,25 @@ def _save_per_channel_vis(record, output_dir, case_name):
             norm_maps = [cv2.resize((m - vmin) / denom, (cell_w, cell_h)) for m in cell_maps]
         in_bgr = _heatmap_to_rgb(norm_maps[0])
         out_bgr = _heatmap_to_rgb(norm_maps[1])
-        zero_bgr = _heatmap_to_rgb(norm_maps[2])
-        diff_bgr = _diff_to_rgb(diff_np[ch], cell_w)
+        delta_bgr = _diff_to_rgb(delta_np[ch], cell_w, vmax_override=shared_delta_vmax)
 
-        y = header_h + ch * cell_h
+        y = header_h + row_idx * cell_h
         canvas[y:y + cell_h, 0:cell_w] = in_bgr
         canvas[y:y + cell_h, cell_w:2 * cell_w] = out_bgr
-        canvas[y:y + cell_h, 2 * cell_w:3 * cell_w] = zero_bgr
-        canvas[y:y + cell_h, 3 * cell_w:4 * cell_w] = diff_bgr
+        canvas[y:y + cell_h, 2 * cell_w:3 * cell_w] = delta_bgr
 
-        g = gamma_vals[ch] if gamma_vals is not None else float('nan')
-        gz = gamma_zero_vals[ch] if gamma_zero_vals is not None else float('nan')
-        dg = gamma_delta_vals[ch] if gamma_delta_vals is not None else float('nan')
-        b = beta_vals[ch] if beta_vals is not None else float('nan')
-        bz = beta_zero_vals[ch] if beta_zero_vals is not None else float('nan')
-        db = beta_delta_vals[ch] if beta_delta_vals is not None else float('nan')
         txt_x = n_cols * cell_w + 5
         cv2.putText(canvas, f'ch{ch}', (txt_x, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
-        cv2.putText(canvas, f'g={g:.4f} gz={gz:.4f} dg={dg:.4f}', (txt_x, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 200), 1)
-        cv2.putText(canvas, f'b={b:.4f} bz={bz:.4f} db={db:.4f}', (txt_x, y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 128, 0), 1)
-        cv2.putText(canvas, f'|eff|={(np.abs(diff_np[ch]).mean()):.4f}', (txt_x, y + 52), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (64, 64, 64), 1)
+        dd = float(delta_np[ch].mean())
+        ds = float(delta_np[ch].std())
+        dm = float(np.abs(delta_np[ch]).max())
+        da = float(np.abs(delta_np[ch]).mean())
+        cv2.putText(canvas, f'mean={dd:.4f}', (txt_x, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 200), 1)
+        cv2.putText(canvas, f'std={ds:.4f}', (txt_x, y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 128, 0), 1)
+        cv2.putText(canvas, f'max={dm:.4f}', (txt_x, y + 52), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (64, 64, 64), 1)
+        cv2.putText(canvas, f'|mean|={da:.4f}', (txt_x, y + 68), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (128, 64, 0), 1)
 
-    save_path = os.path.join(output_dir, f'{case_name}_L{layer_idx}_channels.png')
+    save_path = os.path.join(output_dir, f'{case_name}_L{layer_idx}_all_channels.png')
     cv2.imwrite(save_path, canvas)
 
 
@@ -542,7 +543,7 @@ def run_one_sample(args, model, strategy, device, sample_batch, case_name, outpu
     else:
         depth_np = np.zeros(rgb_np.shape[:2], dtype=np.float32)
 
-    save_path = os.path.join(output_dir, f'{case_name}_gamma_beta.png')
+    save_path = os.path.join(output_dir, f'{case_name}_depth_guider.png')
     visualize_gamma_beta(rgb_np, depth_np, patched_records, save_path)
     logger.info('Saved: %s', save_path)
 
@@ -580,7 +581,7 @@ def main():
         test_dataset, test_loader, _, _ = _build_test_loader(args, fold, fold_map)
 
         output_dir = args.vis_output_dir or os.path.join(
-            build_run_output_dir(args, mode='test', fold=fold), 'gamma_beta_vis'
+            build_run_output_dir(args, mode='test', fold=fold), 'depth_guider_vis'
         )
         os.makedirs(output_dir, exist_ok=True)
 

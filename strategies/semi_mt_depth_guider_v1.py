@@ -1,6 +1,6 @@
 """方案简介（MT-DepthGuider-v1）：
 work！
-使用 depth1c 在编码器各层生成空间注意力，对 RGB 特征做门控残差增强（feat * attn + feat）。
+使用 depth1c 在编码器各层与 RGB 特征做空间 cross-attention，并以残差方式注入 depth 引导特征。
 训练仍采用 Mean Teacher：监督项为 CE + Dice，无监督项为学生/教师一致性约束。
 该策略要求输入包含 depth1（--use_depth 1）。
 """
@@ -14,7 +14,7 @@ class MTDepthGuiderV1Strategy(BaseTrainingStrategy):
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
         if int(args.use_depth or 0) not in (1, 13):
-            raise ValueError("mt_depth_guider_v1 requires --use_depth 1 or 13 (depth1c guider input).")
+            raise ValueError("mt_depth_guider_v1/mt_depth_guider_v1_2/mt_depth_guider_v4 requires --use_depth 1 or 13 (depth1c guider input).")
         self._enable_ema_support()
         self.consistency_start_iters = int(args.consistency_start_iters)
 
@@ -22,7 +22,7 @@ class MTDepthGuiderV1Strategy(BaseTrainingStrategy):
         image = batch_data["image"].to(self.device)
         depth1 = batch_data.get("depth1")
         if depth1 is None:
-            raise KeyError("mt_depth_guider_v1 requires batch_data['depth1'] (1-channel depth guider).")
+            raise KeyError("mt_depth_guider_v1/mt_depth_guider_v1_2/mt_depth_guider_v4 requires batch_data['depth1'] (1-channel depth guider).")
         depth1 = depth1.to(self.device)
         volume = torch.cat([image, depth1], dim=1)
         label = batch_data["label"].to(self.device)

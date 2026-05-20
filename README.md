@@ -72,7 +72,7 @@ strategies/specs.py::STRATEGY_SPECS
 - 全监督：`fully`、`fully_reg`、`ternaus`、`dformerv2_fully`。
 - 全监督增强/预训练：`fully_rgb_masking_depth_v1`、`fully_depth_pretrain_v1`、`fully_depth_pretrain`、`fully_contrast_v1`、`fully_contrast_v1_1`。
 - Mean Teacher：`mt`、`uamt`、`depth_mt`。
-- 深度引导 MT：`mt_depth_teacher_v1`、`mt_depth_guider_v1`、`mt_depth_guider_v2`、`mt_depth_guider_v3`。
+- 深度引导 MT：`mt_depth_teacher_v1`、`mt_depth_guider_v1`、`mt_depth_guider_v2`、`mt_depth_guider_v3`、`mt_depth_guider_v4`。
 - 深度原型 MT：`mt_depth_guider_proto_v1`、`mt_depth_guider_proto_teacher_v1`、`mt_depth_guider_proto_teacher_v2`、`mt_depth_guider_proto_teacher_v3`。
 - 其他半监督：`proto`、`proto_v1`、`dycon`、`w2s`、`urpc`、`rdnet`、`semi_mean_teacher_contrast_v1`、`semi_mean_teacher_text_v1`、`only_depth_input`。
 

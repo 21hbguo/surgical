@@ -2,40 +2,169 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .block.common_block import FeaturePerturbation
+from .block.common_block import DepthGuider, FeaturePerturbation
 from .block.unet_block import ConvBlock, DownBlock, Encoder, Decoder, Decoder_URPC, UpBlock, build_group_norm, replace_batchnorm2d_with_groupnorm
 
-
-class DepthGuider(nn.Module):
+class DepthGuiderV3(nn.Module):
     def __init__(self, in_channels, depth_channels=1):
         super().__init__()
         mid = max(16, in_channels // 2)
-        self.depth_encoder = nn.Sequential(
-            nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1),
-            build_group_norm(mid),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid, mid, kernel_size=3, padding=1),
-            nn.AdaptiveAvgPool2d(1) # 全局池化，得到全局深度向量
-        )
-        
-        self.fc_gamma = nn.Linear(mid, in_channels)
-        self.fc_beta = nn.Linear(mid, in_channels)
-        
-        nn.init.constant_(self.fc_gamma.weight, 0)
-        nn.init.constant_(self.fc_gamma.bias, 1)
-        nn.init.constant_(self.fc_beta.weight, 0)
-        nn.init.constant_(self.fc_beta.bias, 0)
+        self.global_encoder = nn.Sequential(nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.AdaptiveAvgPool2d(1))
+        self.local_encoder = nn.Sequential(nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True))
+        self.global_gamma = nn.Linear(mid, in_channels)
+        self.global_beta = nn.Linear(mid, in_channels)
+        self.local_gamma = nn.Conv2d(mid, in_channels, kernel_size=1)
+        self.local_beta = nn.Conv2d(mid, in_channels, kernel_size=1)
+        self.local_gate = nn.Sequential(nn.Conv2d(mid, mid, kernel_size=3, padding=1, groups=mid, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.Conv2d(mid, in_channels, kernel_size=1))
+        nn.init.constant_(self.global_gamma.weight, 0)
+        nn.init.constant_(self.global_gamma.bias, 1)
+        nn.init.constant_(self.global_beta.weight, 0)
+        nn.init.constant_(self.global_beta.bias, 0)
+        nn.init.constant_(self.local_gamma.weight, 0)
+        nn.init.constant_(self.local_gamma.bias, 0)
+        nn.init.constant_(self.local_beta.weight, 0)
+        nn.init.constant_(self.local_beta.bias, 0)
+        nn.init.constant_(self.local_gate[3].weight, 0)
+        nn.init.constant_(self.local_gate[3].bias, 0)
+        replace_batchnorm2d_with_groupnorm(self)
 
     def forward(self, rgb_feat, depth):
-        B, C, H, W = rgb_feat.shape
-        if depth.shape[2:] != rgb_feat.shape[2:]:
-            depth = F.interpolate(depth, size=rgb_feat.shape[2:], mode='bilinear', align_corners=False)
-        depth_feat = self.depth_encoder(depth).view(B, -1)
-        gamma = self.fc_gamma(depth_feat).view(B, C, 1, 1)
-        beta = self.fc_beta(depth_feat).view(B, C, 1, 1)
-        modulated_feat = gamma * rgb_feat + beta
-        return modulated_feat + rgb_feat
+        b, c, h, w = rgb_feat.shape
+        if depth.shape[2:] != (h, w):
+            depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=False)
+        global_feat = self.global_encoder(depth).view(b, -1)
+        local_feat = self.local_encoder(depth)
+        gamma_global = self.global_gamma(global_feat).view(b, c, 1, 1)
+        beta_global = self.global_beta(global_feat).view(b, c, 1, 1)
+        gamma_local = self.local_gamma(local_feat)
+        beta_local = self.local_beta(local_feat)
+        gate = torch.sigmoid(self.local_gate(local_feat))
+        gamma = gamma_global * (1 + gamma_local)
+        beta = beta_global + beta_local
+        delta = gate * (gamma * rgb_feat + beta)
+        return rgb_feat + delta
 
+class DepthGuiderV4(nn.Module):
+    def __init__(self, in_channels, depth_channels=1, pool_size=8):
+        super().__init__()
+        mid = max(16, in_channels // 2)
+        self.pool_size = pool_size
+        self.depth_encoder = nn.Sequential(
+            nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+        )
+        self.geometry_encoder = nn.Sequential(
+            nn.Conv2d(depth_channels * 3, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+        )
+        self.depth_mixer = nn.Sequential(
+            nn.Conv2d(mid * 2, mid, kernel_size=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=2, dilation=2, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+        )
+        self.rgb_proj = nn.Conv2d(in_channels, mid, kernel_size=1, bias=False)
+        self.scale_router = nn.Sequential(
+            nn.Conv2d(mid * 3, mid, kernel_size=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, 3, kernel_size=1),
+        )
+        self.fusion = nn.Sequential(
+            nn.Conv2d(mid * 4, mid, kernel_size=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+        )
+        self.gate = nn.Sequential(
+            nn.Conv2d(mid * 2, mid, kernel_size=1, bias=False),
+            build_group_norm(mid),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid, in_channels, kernel_size=1),
+        )
+        self.delta_proj = nn.Conv2d(mid, in_channels, kernel_size=1)
+        nn.init.constant_(self.gate[3].weight, 0)
+        nn.init.constant_(self.gate[3].bias, 0)
+        nn.init.constant_(self.delta_proj.weight, 0)
+        nn.init.constant_(self.delta_proj.bias, 0)
+
+    def _resize_depth(self, depth, h, w):
+        if depth.shape[2:] != (h, w):
+            depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=False)
+        return depth
+
+    def _compute_geometry(self, depth):
+        grad_x = F.pad(depth[:, :, :, 1:] - depth[:, :, :, :-1], (0, 1, 0, 0))
+        grad_y = F.pad(depth[:, :, 1:, :] - depth[:, :, :-1, :], (0, 0, 0, 1))
+        grad_m = torch.sqrt(grad_x.pow(2) + grad_y.pow(2) + 1e-6)
+        return torch.cat([grad_x, grad_y, grad_m], dim=1)
+
+    def _encode_depth(self, depth):
+        geom_feat = self.geometry_encoder(self._compute_geometry(depth))
+        depth_feat = self.depth_encoder(depth)
+        depth_feat = self.depth_mixer(torch.cat([depth_feat, geom_feat], dim=1))
+        return depth_feat, geom_feat
+
+    def _build_scale_context(self, depth_feat):
+        h, w = depth_feat.shape[2:]
+        pooled_h = min(h, self.pool_size)
+        pooled_w = min(w, self.pool_size)
+        local_ctx = depth_feat
+        pooled_ctx = F.adaptive_avg_pool2d(depth_feat, (pooled_h, pooled_w))
+        if pooled_ctx.shape[2:] != (h, w):
+            pooled_ctx = F.interpolate(pooled_ctx, size=(h, w), mode="bilinear", align_corners=False)
+        global_ctx = F.adaptive_avg_pool2d(depth_feat, 1).expand(-1, -1, h, w)
+        return local_ctx, pooled_ctx, global_ctx
+
+    def _compute_scale_weight(self, rgb_ctx, depth_feat, geom_feat):
+        return torch.softmax(self.scale_router(torch.cat([rgb_ctx, depth_feat, geom_feat], dim=1)), dim=1)
+
+    def compute_delta(self, rgb_feat, depth):
+        _, _, h, w = rgb_feat.shape
+        depth = self._resize_depth(depth, h, w)
+        rgb_ctx = self.rgb_proj(rgb_feat)
+        depth_feat, geom_feat = self._encode_depth(depth)
+        local_ctx, pooled_ctx, global_ctx = self._build_scale_context(depth_feat)
+        scale_weight = self._compute_scale_weight(rgb_ctx, depth_feat, geom_feat)
+        depth_ctx = scale_weight[:, 0:1] * local_ctx + scale_weight[:, 1:2] * pooled_ctx + scale_weight[:, 2:3] * global_ctx
+        interact_ctx = rgb_ctx * torch.sigmoid(depth_ctx)
+        diff_ctx = torch.abs(rgb_ctx - depth_ctx)
+        fused = self.fusion(torch.cat([rgb_ctx, depth_ctx, interact_ctx, diff_ctx], dim=1))
+        gate = torch.sigmoid(self.gate(torch.cat([fused, depth_ctx], dim=1)))
+        return gate * self.delta_proj(fused)
+
+    def compute_gamma_beta(self, rgb_feat, depth):
+        delta = self.compute_delta(rgb_feat, depth)
+        gamma = torch.zeros_like(delta)
+        beta = delta
+        return gamma, beta
+
+    def forward(self, rgb_feat, depth):
+        return rgb_feat + self.compute_delta(rgb_feat, depth)
 
 class Decoder_NP(nn.Module):
     def __init__(self, params, filter_num=16):
@@ -226,44 +355,107 @@ class UNet_DepthGuiderV1(nn.Module):
         feature = [g(f, depth) for g, f in zip(self.depth_guiders, feature)]
         return self.decoder(feature)
 
-class DepthGuiderV3(nn.Module):
-    def __init__(self, in_channels, depth_channels=1):
+class DepthGuidedEncoder(nn.Module):
+    def __init__(self, params, filter_num=16):
         super().__init__()
-        mid = max(16, in_channels // 2)
-        self.global_encoder = nn.Sequential(nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.AdaptiveAvgPool2d(1))
-        self.local_encoder = nn.Sequential(nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.Conv2d(mid, mid, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True))
-        self.global_gamma = nn.Linear(mid, in_channels)
-        self.global_beta = nn.Linear(mid, in_channels)
-        self.local_gamma = nn.Conv2d(mid, in_channels, kernel_size=1)
-        self.local_beta = nn.Conv2d(mid, in_channels, kernel_size=1)
-        self.local_gate = nn.Sequential(nn.Conv2d(mid, mid, kernel_size=3, padding=1, groups=mid, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True), nn.Conv2d(mid, in_channels, kernel_size=1))
-        nn.init.constant_(self.global_gamma.weight, 0)
-        nn.init.constant_(self.global_gamma.bias, 1)
-        nn.init.constant_(self.global_beta.weight, 0)
-        nn.init.constant_(self.global_beta.bias, 0)
-        nn.init.constant_(self.local_gamma.weight, 0)
-        nn.init.constant_(self.local_gamma.bias, 0)
-        nn.init.constant_(self.local_beta.weight, 0)
-        nn.init.constant_(self.local_beta.bias, 0)
-        nn.init.constant_(self.local_gate[3].weight, 0)
-        nn.init.constant_(self.local_gate[3].bias, 0)
-        replace_batchnorm2d_with_groupnorm(self)
+        self.params = params
+        self.in_chns = self.params['in_chns']
+        self.ft_chns = [filter_num * (2 ** i) for i in range(5)]
+        self.params['feature_chns'] = self.ft_chns
+        self.n_class = self.params['class_num']
+        self.bilinear = self.params['bilinear']
+        self.dropout = self.params['dropout']
+        assert (len(self.ft_chns) == 5)
+        self.in_conv = ConvBlock(self.in_chns, self.ft_chns[0], self.dropout[0])
+        self.down1 = DownBlock(self.ft_chns[0], self.ft_chns[1], self.dropout[1])
+        self.down2 = DownBlock(self.ft_chns[1], self.ft_chns[2], self.dropout[2])
+        self.down3 = DownBlock(self.ft_chns[2], self.ft_chns[3], self.dropout[3])
+        self.down4 = DownBlock(self.ft_chns[3], self.ft_chns[4], self.dropout[4])
+        self.depth_guiders = nn.ModuleList([DepthGuider(c, depth_channels=1) for c in self.ft_chns])
 
-    def forward(self, rgb_feat, depth):
-        b, c, h, w = rgb_feat.shape
-        if depth.shape[2:] != (h, w):
-            depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=False)
-        global_feat = self.global_encoder(depth).view(b, -1)
-        local_feat = self.local_encoder(depth)
-        gamma_global = self.global_gamma(global_feat).view(b, c, 1, 1)
-        beta_global = self.global_beta(global_feat).view(b, c, 1, 1)
-        gamma_local = self.local_gamma(local_feat)
-        beta_local = self.local_beta(local_feat)
-        gate = torch.sigmoid(self.local_gate(local_feat))
-        gamma = gamma_global * (1 + gamma_local)
-        beta = beta_global + beta_local
-        delta = gate * (gamma * rgb_feat + beta)
-        return rgb_feat + delta
+    def forward(self, x, depth):
+        x0 = self.depth_guiders[0](self.in_conv(x), depth)
+        x1 = self.depth_guiders[1](self.down1(x0), depth)
+        x2 = self.depth_guiders[2](self.down2(x1), depth)
+        x3 = self.depth_guiders[3](self.down3(x2), depth)
+        x4 = self.depth_guiders[4](self.down4(x3), depth)
+        return [x0, x1, x2, x3, x4]
+
+class UNet_DepthGuiderV1_2(nn.Module):
+    def __init__(self, in_chns, class_num, filter_num=16):
+        super().__init__()
+        params = {
+            'in_chns': in_chns,
+            'dropout': [0, 0, 0, 0, 0],
+            'class_num': class_num,
+            'bilinear': False,
+            'acti_func': 'relu',
+            'filter_num': filter_num
+        }
+        self.params = params
+        self.encoder = DepthGuidedEncoder(params, filter_num)
+        self.decoder = Decoder(params, filter_num)
+
+    def _split_rgb_depth(self, x):
+        rgb = x[:, :3, :, :]
+        depth = x[:, 3:4, :, :] if x.shape[1] >= 4 else rgb[:, :1, :, :]
+        return rgb, depth
+
+    def forward(self, x):
+        rgb, depth = self._split_rgb_depth(x)
+        feature = self.encoder(rgb, depth)
+        return self.decoder(feature)
+
+class DepthGuidedEncoderV4(nn.Module):
+    def __init__(self, params, filter_num=16):
+        super().__init__()
+        self.params = params
+        self.in_chns = self.params['in_chns']
+        self.ft_chns = [filter_num * (2 ** i) for i in range(5)]
+        self.params['feature_chns'] = self.ft_chns
+        self.n_class = self.params['class_num']
+        self.bilinear = self.params['bilinear']
+        self.dropout = self.params['dropout']
+        assert (len(self.ft_chns) == 5)
+        self.in_conv = ConvBlock(self.in_chns, self.ft_chns[0], self.dropout[0])
+        self.down1 = DownBlock(self.ft_chns[0], self.ft_chns[1], self.dropout[1])
+        self.down2 = DownBlock(self.ft_chns[1], self.ft_chns[2], self.dropout[2])
+        self.down3 = DownBlock(self.ft_chns[2], self.ft_chns[3], self.dropout[3])
+        self.down4 = DownBlock(self.ft_chns[3], self.ft_chns[4], self.dropout[4])
+        self.depth_guiders = nn.ModuleList([DepthGuiderV4(c, depth_channels=1, pool_size=s) for c, s in zip(self.ft_chns, [16, 16, 8, 4, 2])])
+
+    def forward(self, x, depth):
+        x0 = self.depth_guiders[0](self.in_conv(x), depth)
+        x1 = self.depth_guiders[1](self.down1(x0), depth)
+        x2 = self.depth_guiders[2](self.down2(x1), depth)
+        x3 = self.depth_guiders[3](self.down3(x2), depth)
+        x4 = self.depth_guiders[4](self.down4(x3), depth)
+        return [x0, x1, x2, x3, x4]
+
+class UNet_DepthGuiderV4(nn.Module):
+    def __init__(self, in_chns, class_num, filter_num=16):
+        super().__init__()
+        params = {
+            'in_chns': in_chns,
+            'dropout': [0, 0, 0, 0, 0],
+            'class_num': class_num,
+            'bilinear': False,
+            'acti_func': 'relu',
+            'filter_num': filter_num
+        }
+        self.params = params
+        self.encoder = DepthGuidedEncoderV4(params, filter_num)
+        self.decoder = Decoder(params, filter_num)
+
+    def _split_rgb_depth(self, x):
+        rgb = x[:, :3, :, :]
+        depth = x[:, 3:4, :, :] if x.shape[1] >= 4 else rgb[:, :1, :, :]
+        return rgb, depth
+
+    def forward(self, x):
+        rgb, depth = self._split_rgb_depth(x)
+        feature = self.encoder(rgb, depth)
+        return self.decoder(feature)
 
 class UNet_DepthGuiderV3(nn.Module):
     def __init__(self, in_chns, class_num, filter_num=16):

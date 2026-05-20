@@ -37,6 +37,8 @@ class StrategySpecsTest(unittest.TestCase):
         names = get_strategy_names()
         self.assertIn("fully", names)
         self.assertIn("mt_depth_teacher_v1", names)
+        self.assertIn("mt_depth_guider_v1_2", names)
+        self.assertIn("mt_depth_guider_v4", names)
         self.assertIn("mt_depth_guider_proto_teacher_v2", names)
         self.assertIn("mt_depth_guider_proto_teacher_v3", names)
         self.assertNotIn("mt_depth_guider_proto_v2", names)
@@ -69,7 +71,27 @@ class StrategySpecsTest(unittest.TestCase):
             use_depth=13,
         )
         self.assertEqual(resolved["use_depth"], 13)
-        self.assertEqual(resolved["in_chns"], 4)
+        self.assertEqual(resolved["in_chns"], 3)
+
+    def test_resolve_strategy_input_settings_keeps_depth13_semantics_for_v1_2(self):
+        resolved = resolve_strategy_input_settings(
+            way="mt_depth_guider_v1_2",
+            root_path=self.root_path,
+            task=1,
+            use_depth=13,
+        )
+        self.assertEqual(resolved["use_depth"], 13)
+        self.assertEqual(resolved["in_chns"], 3)
+
+    def test_resolve_strategy_input_settings_keeps_depth13_semantics_for_v4(self):
+        resolved = resolve_strategy_input_settings(
+            way="mt_depth_guider_v4",
+            root_path=self.root_path,
+            task=1,
+            use_depth=13,
+        )
+        self.assertEqual(resolved["use_depth"], 13)
+        self.assertEqual(resolved["in_chns"], 3)
 
     def test_resolve_strategy_default_model_name_comes_from_spec(self):
         self.assertEqual(
@@ -83,6 +105,10 @@ class StrategySpecsTest(unittest.TestCase):
         self.assertEqual(
             resolve_strategy_default_model_name("dformerv2_fully", "resnet"),
             "dformerv2_small",
+        )
+        self.assertEqual(
+            resolve_strategy_default_model_name("mt_depth_guider_v4", "resnet"),
+            "unet_depth_guider_v4",
         )
 
 

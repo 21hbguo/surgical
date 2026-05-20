@@ -1,6 +1,6 @@
 """
-可视化 DepthGuider 的 gamma/beta 值。
-对 test 的第一张图，每层选 top-K 通道的特征图，标注 gamma/beta 值并拼接。
+可视化 DepthGuider 的 delta 或 gamma/beta 值。
+对 test 的第一张图，每层选 top-K 通道的特征图，标注 depth guider 输出并拼接。
 用法与 test.py 一致，--pth best/final 自动解析 checkpoint 路径。
 """
 
@@ -19,25 +19,30 @@ from utils.common import load_checkpoint
 
 # ── Hook 注册 ──────────────────────────────────────────────
 class DepthGuiderHook:
-    """注册到每个 DepthGuider，捕获 gamma/beta 和输入特征。"""
+    """注册到每个 DepthGuider，捕获调制量和输入特征。"""
 
     def __init__(self):
+        self.mode = None
         self.gamma = None
         self.beta = None
+        self.delta = None
         self.rgb_feat = None
         self.modulated_feat = None
 
     def __call__(self, module, input, output):
         rgb_feat = input[0]
         depth = input[1]
-        B, C, H, W = rgb_feat.shape
-        if depth.shape[2:] != rgb_feat.shape[2:]:
-            depth = F.interpolate(depth, size=rgb_feat.shape[2:], mode='bilinear', align_corners=False)
-        depth_feat = module.depth_encoder(depth).view(B, -1)
-        gamma = module.fc_gamma(depth_feat).view(B, C, 1, 1)
-        beta = module.fc_beta(depth_feat).view(B, C, 1, 1)
-        self.gamma = gamma.detach().cpu()
-        self.beta = beta.detach().cpu()
+        if hasattr(module, "compute_delta"):
+            self.mode = "delta"
+            self.delta = module.compute_delta(rgb_feat, depth).detach().cpu()
+            self.gamma = None
+            self.beta = None
+        else:
+            self.mode = "affine"
+            gamma, beta = module.compute_gamma_beta(rgb_feat, depth)
+            self.gamma = gamma.detach().cpu()
+            self.beta = beta.detach().cpu()
+            self.delta = None
         self.rgb_feat = rgb_feat.detach().cpu()
         self.modulated_feat = output.detach().cpu()
 
@@ -65,10 +70,22 @@ def select_topk_channels(feat_2d, k):
     return indices.numpy()
 
 
+def reduce_channel_values(feat):
+    values = feat[0]
+    if values.ndim == 1:
+        return values.numpy()
+    if values.ndim == 3:
+        return values.mean(dim=(1, 2)).numpy()
+    return values.reshape(values.shape[0], -1).mean(dim=1).numpy()
+
+
 def draw_layer_viz(hook, layer_name, out_dir, topk=8, img_size=128):
-    """画一层 top-K 通道的 gamma/beta 标注特征图，拼成一张大图。"""
-    gamma = hook.gamma[0]
-    beta = hook.beta[0]
+    """画一层 top-K 通道的 depth guider 标注特征图，拼成一张大图。"""
+    if hook.mode == "delta":
+        delta = reduce_channel_values(hook.delta)
+    else:
+        gamma = reduce_channel_values(hook.gamma)
+        beta = reduce_channel_values(hook.beta)
     feat = hook.rgb_feat[0]
     C = feat.shape[0]
 
@@ -86,12 +103,10 @@ def draw_layer_viz(hook, layer_name, out_dir, topk=8, img_size=128):
                                    mode='bilinear', align_corners=False
                                    ).squeeze().numpy()
 
-        g_val = gamma[idx].item()
-        b_val = beta[idx].item()
-
-        if g_val > 0:
+        primary_val = float(delta[idx]) if hook.mode == "delta" else float(gamma[idx])
+        if primary_val > 0:
             color = (0.85, 0.15, 0.15)
-        elif g_val < 0:
+        elif primary_val < 0:
             color = (0.15, 0.15, 0.85)
         else:
             color = (0.3, 0.3, 0.3)
@@ -102,7 +117,7 @@ def draw_layer_viz(hook, layer_name, out_dir, topk=8, img_size=128):
         ax.axis('off')
 
         ax.text(0.5, -0.08,
-                f'γ={g_val:+.3f}\nβ={b_val:+.3f}',
+                f'δ={float(delta[idx]):+.3f}' if hook.mode == "delta" else f'γ={float(gamma[idx]):+.3f}\nβ={float(beta[idx]):+.3f}',
                 transform=ax.transAxes,
                 ha='center', va='top',
                 fontsize=8, fontweight='bold',
@@ -121,18 +136,23 @@ def draw_layer_viz(hook, layer_name, out_dir, topk=8, img_size=128):
     axes[0, 0].set_ylabel('Before', fontsize=11, fontweight='bold', rotation=0, labelpad=40)
     axes[1, 0].set_ylabel('After', fontsize=11, fontweight='bold', rotation=0, labelpad=40)
 
-    fig.suptitle(f'{layer_name}  |  γ range: [{gamma.min():+.4f}, {gamma.max():+.4f}]  |  '
-                 f'β range: [{beta.min():+.4f}, {beta.max():+.4f}]',
-                 fontsize=11, fontweight='bold')
+    if hook.mode == "delta":
+        fig.suptitle(f'{layer_name}  |  δ range: [{delta.min():+.4f}, {delta.max():+.4f}]',
+                     fontsize=11, fontweight='bold')
+        save_path = os.path.join(out_dir, f'{layer_name}_delta.png')
+    else:
+        fig.suptitle(f'{layer_name}  |  γ range: [{gamma.min():+.4f}, {gamma.max():+.4f}]  |  '
+                     f'β range: [{beta.min():+.4f}, {beta.max():+.4f}]',
+                     fontsize=11, fontweight='bold')
+        save_path = os.path.join(out_dir, f'{layer_name}_gamma_beta.png')
     plt.tight_layout()
-    save_path = os.path.join(out_dir, f'{layer_name}_gamma_beta.png')
     fig.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     return save_path
 
 
 def draw_summary(hooks, out_dir):
-    """画所有层的 gamma/beta 总览图。"""
+    """画所有层的 depth guider 总览图。"""
     layer_names = sorted(hooks.keys())
     n_layers = len(layer_names)
 
@@ -142,29 +162,43 @@ def draw_summary(hooks, out_dir):
 
     for row, name in enumerate(layer_names):
         hook = hooks[name]
-        gamma = hook.gamma[0].numpy().flatten()
-        beta = hook.beta[0].numpy().flatten()
-
         ax = axes[row, 0]
-        ax.bar(range(len(gamma)), gamma,
-               color=['#d32f2f' if g > 0 else '#1565c0' if g < 0 else '#757575' for g in gamma])
-        ax.axhline(y=0, color='gray', linewidth=0.5, linestyle='--')
         ax.set_ylabel(name, fontsize=9, fontweight='bold')
-        if row == 0:
-            ax.set_title('γ (gamma)', fontsize=10, fontweight='bold')
-        ax.tick_params(labelsize=7)
+        if hook.mode == "delta":
+            delta = reduce_channel_values(hook.delta)
+            ax.bar(range(len(delta)), delta,
+                   color=['#d32f2f' if d > 0 else '#1565c0' if d < 0 else '#757575' for d in delta])
+            ax.axhline(y=0, color='gray', linewidth=0.5, linestyle='--')
+            if row == 0:
+                ax.set_title('δ (delta)', fontsize=10, fontweight='bold')
+            ax.tick_params(labelsize=7)
+            ax = axes[row, 1]
+            ax.bar(range(len(delta)), abs(delta), color='#43a047')
+            ax.axhline(y=0, color='gray', linewidth=0.5, linestyle='--')
+            if row == 0:
+                ax.set_title('|δ|', fontsize=10, fontweight='bold')
+            ax.tick_params(labelsize=7)
+        else:
+            gamma = reduce_channel_values(hook.gamma)
+            beta = reduce_channel_values(hook.beta)
+            ax.bar(range(len(gamma)), gamma,
+                   color=['#d32f2f' if g > 0 else '#1565c0' if g < 0 else '#757575' for g in gamma])
+            ax.axhline(y=0, color='gray', linewidth=0.5, linestyle='--')
+            if row == 0:
+                ax.set_title('γ (gamma)', fontsize=10, fontweight='bold')
+            ax.tick_params(labelsize=7)
+            ax = axes[row, 1]
+            ax.bar(range(len(beta)), beta,
+                   color=['#e57373' if b > 0 else '#64b5f6' if b < 0 else '#bdbdbd' for b in beta])
+            ax.axhline(y=0, color='gray', linewidth=0.5, linestyle='--')
+            if row == 0:
+                ax.set_title('β (beta)', fontsize=10, fontweight='bold')
+            ax.tick_params(labelsize=7)
 
-        ax = axes[row, 1]
-        ax.bar(range(len(beta)), beta,
-               color=['#e57373' if b > 0 else '#64b5f6' if b < 0 else '#bdbdbd' for b in beta])
-        ax.axhline(y=0, color='gray', linewidth=0.5, linestyle='--')
-        if row == 0:
-            ax.set_title('β (beta)', fontsize=10, fontweight='bold')
-        ax.tick_params(labelsize=7)
-
-    fig.suptitle('DepthGuider γ / β Summary (per channel)', fontsize=12, fontweight='bold')
+    summary_title = 'DepthGuider δ Summary (per channel)' if hooks[layer_names[0]].mode == "delta" else 'DepthGuider γ / β Summary (per channel)'
+    fig.suptitle(summary_title, fontsize=12, fontweight='bold')
     plt.tight_layout()
-    save_path = os.path.join(out_dir, 'summary_gamma_beta.png')
+    save_path = os.path.join(out_dir, 'summary_delta.png' if hooks[layer_names[0]].mode == "delta" else 'summary_gamma_beta.png')
     fig.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     return save_path

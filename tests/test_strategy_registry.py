@@ -22,6 +22,8 @@ class StrategyRegistryTest(unittest.TestCase):
         self.assertIn("semi_mean_teacher_contrast_v1", STRATEGY_REGISTRY)
         self.assertIn("mt_depth_teacher_v1", STRATEGY_REGISTRY)
         self.assertIn("mt_depth_guider_v1", STRATEGY_REGISTRY)
+        self.assertIn("mt_depth_guider_v1_2", STRATEGY_REGISTRY)
+        self.assertIn("mt_depth_guider_v4", STRATEGY_REGISTRY)
         self.assertIn("mt_depth_guider_proto_v1", STRATEGY_REGISTRY)
         self.assertIn("mt_depth_guider_proto_teacher_v2", STRATEGY_REGISTRY)
         self.assertIn("mt_depth_guider_proto_teacher_v3", STRATEGY_REGISTRY)

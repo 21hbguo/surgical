@@ -36,8 +36,16 @@ class ModelFactoryTest(unittest.TestCase):
         self.assertEqual(resolve_default_model_name("mt_depth_guider_v1", "resnet"), "resnet_depth_guider_v1")
         self.assertEqual(resolve_default_model_name("mt_depth_guider_v1", "depth"), "depth_depth_guider_v1")
         self.assertEqual(resolve_default_model_name("mt_depth_guider_v1", "dinov3"), "dinov3_depth_guider_v1")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v1_2", "none"), "unet_depth_guider_v1_2")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v1_2", "resnet"), "unet_depth_guider_v1_2")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v1_2", "depth"), "unet_depth_guider_v1_2")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v1_2", "dinov3"), "unet_depth_guider_v1_2")
         self.assertEqual(resolve_default_model_name("mt_depth_guider_v3", "none"), "unet_depth_guider_v3")
         self.assertEqual(resolve_default_model_name("mt_depth_guider_v3", "resnet"), "resnet_depth_guider_v3")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v4", "none"), "unet_depth_guider_v4")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v4", "resnet"), "unet_depth_guider_v4")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v4", "depth"), "unet_depth_guider_v4")
+        self.assertEqual(resolve_default_model_name("mt_depth_guider_v4", "dinov3"), "unet_depth_guider_v4")
         self.assertEqual(resolve_default_model_name("mt_depth_guider_proto_v1", "none"), "unet_depth_guider_proto_v1")
         self.assertEqual(resolve_default_model_name("mt_depth_guider_proto_v1", "resnet"), "resnet_depth_guider_proto_v1")
         self.assertEqual(resolve_default_model_name("mt_depth_guider_proto_v1", "depth"), "depth_depth_guider_proto_v1")
@@ -60,6 +68,8 @@ class ModelFactoryTest(unittest.TestCase):
         self.assertIn("unet_contrast_v1", MODEL_REGISTRY)
         self.assertIn("resnet_contrast_v1", MODEL_REGISTRY)
         self.assertIn("unet_depth_guider_v3", MODEL_REGISTRY)
+        self.assertIn("unet_depth_guider_v1_2", MODEL_REGISTRY)
+        self.assertIn("unet_depth_guider_v4", MODEL_REGISTRY)
         captured = {}
 
         def builder(**kwargs):

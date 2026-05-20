@@ -4,6 +4,8 @@ import unittest
 import torch
 import torch.nn.functional as F
 
+from models.networks.resnet import DepthGuider as ResNetDepthGuider
+from models.networks.unet import DepthGuider as UNetDepthGuider, DepthGuiderV4, UNet_DepthGuiderV1_2, UNet_DepthGuiderV4
 from strategies import STRATEGY_REGISTRY
 from strategies.semi_mt_depth_guider_v1 import MTDepthGuiderV1Strategy
 
@@ -90,6 +92,63 @@ class MTDepthGuiderV1StrategyTest(unittest.TestCase):
         args = Namespace(**{**vars(self.args), "use_depth": None})
         with self.assertRaises(ValueError):
             MTDepthGuiderV1Strategy(args, self.model, self.optimizer, self.device)
+
+
+class DepthGuiderModuleTest(unittest.TestCase):
+    def test_resnet_depth_guider_init_identity(self):
+        guider = ResNetDepthGuider(8, depth_channels=1)
+        rgb = torch.randn(2, 8, 16, 16)
+        depth = torch.randn(2, 1, 16, 16)
+        out = guider(rgb, depth)
+        gamma, beta = guider.compute_gamma_beta(rgb, depth)
+        self.assertEqual(tuple(gamma.shape), (2, 8, 16, 16))
+        self.assertEqual(tuple(beta.shape), (2, 8, 16, 16))
+        self.assertTrue(torch.allclose(out, rgb, atol=1e-6))
+
+    def test_unet_depth_guider_init_identity(self):
+        guider = UNetDepthGuider(8, depth_channels=1)
+        rgb = torch.randn(2, 8, 16, 16)
+        depth = torch.randn(2, 1, 16, 16)
+        out = guider(rgb, depth)
+        gamma, beta = guider.compute_gamma_beta(rgb, depth)
+        self.assertEqual(tuple(gamma.shape), (2, 8, 16, 16))
+        self.assertEqual(tuple(beta.shape), (2, 8, 16, 16))
+        self.assertTrue(torch.allclose(out, rgb, atol=1e-6))
+
+    def test_unet_depth_guider_v1_2_encoder_guided(self):
+        model = UNet_DepthGuiderV1_2(in_chns=3, class_num=2)
+        x = torch.randn(2, 4, 32, 32)
+        out = model(x)
+        self.assertEqual(tuple(out.shape), (2, 2, 32, 32))
+        self.assertTrue(hasattr(model.encoder, "depth_guiders"))
+
+    def test_unet_depth_guider_v4_init_identity(self):
+        guider = DepthGuiderV4(8, depth_channels=1, pool_size=4)
+        rgb = torch.randn(2, 8, 16, 16)
+        depth = torch.randn(2, 1, 16, 16)
+        out = guider(rgb, depth)
+        gamma, beta = guider.compute_gamma_beta(rgb, depth)
+        self.assertEqual(tuple(gamma.shape), (2, 8, 16, 16))
+        self.assertEqual(tuple(beta.shape), (2, 8, 16, 16))
+        self.assertTrue(torch.allclose(out, rgb, atol=1e-6))
+
+    def test_unet_depth_guider_v4_scale_router_is_spatial(self):
+        guider = DepthGuiderV4(8, depth_channels=1, pool_size=4)
+        rgb = torch.randn(2, 8, 16, 16)
+        depth = torch.randn(2, 1, 16, 16)
+        depth = guider._resize_depth(depth, 16, 16)
+        rgb_ctx = guider.rgb_proj(rgb)
+        depth_feat, geom_feat = guider._encode_depth(depth)
+        scale_weight = guider._compute_scale_weight(rgb_ctx, depth_feat, geom_feat)
+        self.assertEqual(tuple(scale_weight.shape), (2, 3, 16, 16))
+        self.assertTrue(torch.allclose(scale_weight.sum(dim=1), torch.ones(2, 16, 16), atol=1e-6))
+
+    def test_unet_depth_guider_v4_encoder_guided(self):
+        model = UNet_DepthGuiderV4(in_chns=3, class_num=2)
+        x = torch.randn(2, 4, 32, 32)
+        out = model(x)
+        self.assertEqual(tuple(out.shape), (2, 2, 32, 32))
+        self.assertTrue(hasattr(model.encoder, "depth_guiders"))
 
 
 if __name__ == "__main__":

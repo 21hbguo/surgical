@@ -84,7 +84,8 @@ export TMPDIR
 
 ## 要挂的实验(work的)
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way semi_mean_teacher_text_v1 --exp endovis2017/MTTextV1 --labeled_num 40 --proto_feature_dim 512
-# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold 0 --task 1 --way mt_depth_guider_v1 --exp endovis2017/MT_depth_guider_v12 --labeled_num 40 --use_depth 1 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold 0 --task 1 --way mt_depth_guider_v1_2 --exp endovis2017/MT_depth_guider_v12 --labeled_num 40 --use_depth 1 && \
+# CUDA_VISIBLE_DEVICES=0 python -m core.train --fold 0 --task 1 --way mt_depth_guider_v4 --exp endovis2017/MT_depth_guider_v4 --labeled_num 40 --use_depth 1 && \
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold 0 --task 1 --way mt --exp endovis2017/MT2 --labeled_num 40
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold 0 --task 1 --way fully --exp endovis2017/Fully --labeled_num 100 && \
 # CUDA_VISIBLE_DEVICES=0 python -m core.train --fold 0 --task 1 --way fully --exp endovis2017/Fully --labeled_num 40
@@ -101,19 +102,23 @@ CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way fully --exp
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt --exp endovis2017/MT --labeled_num 40 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way uamt --exp endovis2017/UAMT --labeled_num 40 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way urpc --exp endovis2017/URPC --labeled_num 40 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1 --exp endovis2017/MT_depth_guider_v1 --labeled_num 40 --use_depth 1 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1_2 --exp endovis2017/MT_depth_guider_v12 --labeled_num 40 --use_depth 1 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v4 --exp endovis2017/MT_depth_guider_v4 --labeled_num 40 --use_depth 1 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way fully --exp endovis2017/Fully --labeled_num 20 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt --exp endovis2017/MT --labeled_num 20 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way uamt --exp endovis2017/UAMT --labeled_num 20 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way urpc --exp endovis2017/URPC --labeled_num 20 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1 --exp endovis2017/MT_depth_guider_v1 --labeled_num 20 --use_depth 1 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1_2 --exp endovis2017/MT_depth_guider_v12 --labeled_num 20 --use_depth 1 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v4 --exp endovis2017/MT_depth_guider_v4 --labeled_num 20 --use_depth 1 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way fully --exp endovis2017/Fully --labeled_num 10 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt --exp endovis2017/MT --labeled_num 10 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way uamt --exp endovis2017/UAMT --labeled_num 10 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way urpc --exp endovis2017/URPC --labeled_num 10 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1 --exp endovis2017/MT_depth_guider_v1 --labeled_num 10 --use_depth 1 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1_2 --exp endovis2017/MT_depth_guider_v12 --labeled_num 10 --use_depth 1 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v4 --exp endovis2017/MT_depth_guider_v4 --labeled_num 10 --use_depth 1 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way fully --exp endovis2017/Fully --labeled_num 5 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt --exp endovis2017/MT --labeled_num 5 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way uamt --exp endovis2017/UAMT --labeled_num 5 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way urpc --exp endovis2017/URPC --labeled_num 5 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1 --exp endovis2017/MT_depth_guider_v1 --labeled_num 5 --use_depth 1
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v1_2 --exp endovis2017/MT_depth_guider_v12 --labeled_num 5 --use_depth 1 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v4 --exp endovis2017/MT_depth_guider_v4 --labeled_num 5 --use_depth 1

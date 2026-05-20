@@ -8,7 +8,7 @@ from .networks.dinov3 import DINOv3UNet_Base, DINOv3UNet_ContrastV1, DINOv3UNet_
 from .networks.resnet import ResNetUNet_Base, ResNetUNet_ContrastV1, ResNetUNet_DepthGuiderV1, ResNetUNet_DepthGuiderV2, ResNetUNet_DepthGuiderV3, ResNetUNet_DepthGuiderProtoV1, ResNetUNet_DyCON, ResNetUNet_Depth, ResNetUNet_DepthPretrain, ResNetUNet_proto, ResNetUNet_URPC, ResNetUNet_W2S
 from .networks.depth import DepthUNet_Base, DepthUNet_ContrastV1, DepthUNet_DepthGuiderV1, DepthUNet_DepthGuiderProtoV1, DepthUNet_DyCON, DepthUNet_Depth, DepthUNet_DepthPretrain, DepthUNet_proto, DepthUNet_URPC, DepthUNet_W2S
 from .networks.ternaus import TernausNet16
-from .networks.unet import UNet_Base, UNet_ContrastV1, UNet_DepthGuiderV1, UNet_DepthGuiderV3, UNet_DepthGuiderProtoV1, UNet_DyCON, UNet_Depth, UNet_DepthPretrain, UNet_proto, UNet_URPC, UNet_W2S
+from .networks.unet import UNet_Base, UNet_ContrastV1, UNet_DepthGuiderV1, UNet_DepthGuiderV1_2, UNet_DepthGuiderV3, UNet_DepthGuiderV4, UNet_DepthGuiderProtoV1, UNet_DyCON, UNet_Depth, UNet_DepthPretrain, UNet_proto, UNet_URPC, UNet_W2S
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,9 @@ MODEL_REGISTRY = {
     "unet_dycon": ModelSpec(builder=UNet_DyCON, arg_map=_UNET_ARG_MAP, static_kwargs=_DYCON_STATIC_KWARGS),
     "unet_w2s": ModelSpec(builder=UNet_W2S, arg_map=_UNET_ARG_MAP),
     "unet_depth_guider_v1": ModelSpec(builder=UNet_DepthGuiderV1, arg_map=_UNET_ARG_MAP),
+    "unet_depth_guider_v1_2": ModelSpec(builder=UNet_DepthGuiderV1_2, arg_map=_UNET_ARG_MAP),
     "unet_depth_guider_v3": ModelSpec(builder=UNet_DepthGuiderV3, arg_map=_UNET_ARG_MAP),
+    "unet_depth_guider_v4": ModelSpec(builder=UNet_DepthGuiderV4, arg_map=_UNET_ARG_MAP),
     "unet_depth_guider_proto_v1": ModelSpec(builder=UNet_DepthGuiderProtoV1, arg_map=_with_arg_map(_UNET_ARG_MAP, feature_dim="proto_feature_dim")),
     "unet_depth": ModelSpec(builder=UNet_Depth, arg_map=_UNET_ARG_MAP),
     "unet_depth_pretrain": ModelSpec(builder=UNet_DepthPretrain, arg_map=_UNET_ARG_MAP),
