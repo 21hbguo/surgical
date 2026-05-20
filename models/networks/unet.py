@@ -9,18 +9,33 @@ from .block.unet_block import ConvBlock, DownBlock, Encoder, Decoder, Decoder_UR
 class DepthGuider(nn.Module):
     def __init__(self, in_channels, depth_channels=1):
         super().__init__()
-        mid = max(1, in_channels // 4)
-        self.attention_net = nn.Sequential(
+        mid = max(16, in_channels // 2)
+        self.depth_encoder = nn.Sequential(
             nn.Conv2d(depth_channels, mid, kernel_size=3, padding=1),
+            build_group_norm(mid),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid, 1, kernel_size=3, padding=1),
-            nn.Sigmoid(),
+            nn.Conv2d(mid, mid, kernel_size=3, padding=1),
+            nn.AdaptiveAvgPool2d(1) # 全局池化，得到全局深度向量
         )
+        
+        self.fc_gamma = nn.Linear(mid, in_channels)
+        self.fc_beta = nn.Linear(mid, in_channels)
+        
+        nn.init.constant_(self.fc_gamma.weight, 0)
+        nn.init.constant_(self.fc_gamma.bias, 1)
+        nn.init.constant_(self.fc_beta.weight, 0)
+        nn.init.constant_(self.fc_beta.bias, 0)
 
     def forward(self, rgb_feat, depth):
+        B, C, H, W = rgb_feat.shape
         if depth.shape[2:] != rgb_feat.shape[2:]:
-            depth = F.interpolate(depth, size=rgb_feat.shape[2:], mode="bilinear", align_corners=False)
-        return rgb_feat * self.attention_net(depth) + rgb_feat
+            depth = F.interpolate(depth, size=rgb_feat.shape[2:], mode='bilinear', align_corners=False)
+        depth_feat = self.depth_encoder(depth).view(B, -1)
+        gamma = self.fc_gamma(depth_feat).view(B, C, 1, 1)
+        beta = self.fc_beta(depth_feat).view(B, C, 1, 1)
+        modulated_feat = gamma * rgb_feat + beta
+        return modulated_feat + rgb_feat
+
 
 class Decoder_NP(nn.Module):
     def __init__(self, params, filter_num=16):
@@ -206,8 +221,8 @@ class UNet_DepthGuiderV1(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        feature = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        feature = self.encoder(rgb)
         feature = [g(f, depth) for g, f in zip(self.depth_guiders, feature)]
         return self.decoder(feature)
 
@@ -265,8 +280,8 @@ class UNet_DepthGuiderV3(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        feature = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        feature = self.encoder(rgb)
         feature = [g(f, depth) for g, f in zip(self.depth_guiders, feature)]
         return self.decoder(feature)
 
@@ -393,8 +408,8 @@ class UNet_DepthGuiderProtoV1(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        feats = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        feats = self.encoder(rgb)
         feats = [g(f, depth) for g, f in zip(self.depth_guiders, feats)]
         seg_logits = self.decoder(feats)
         proto_feat = self.projector(feats[4])

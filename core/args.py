@@ -165,7 +165,7 @@ def add_train_args(parser):
 
 def add_test_args(parser):
     parser.add_argument("--labeled_num", type=float, default=10, help="Labeled percentage. Examples: 0.1=0.1%%, 1=1%%, 10=10%%.")
-    parser.add_argument("--sampling", type=str, default="none", choices=["none", "interval"])
+    parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"])
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--checkpoint-type", "--pth", "--pth_type", dest="requested_checkpoint_type", type=str, default="best", choices=["best", "final", "latest"])
     parser.add_argument("--rgb", type=int, default=2, choices=[0, 1, 2], help="0=off, 1=pred overlay, 2=label/pred side-by-side overlays")

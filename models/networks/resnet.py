@@ -169,8 +169,8 @@ class ResNetUNet_DepthGuiderV1(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        e1, e2, e3, e4, e5 = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        e1, e2, e3, e4, e5 = self.encoder(rgb)
         e1, e2, e3, e4, e5 = [g(f, depth) for g, f in zip(self.depth_guiders, [e1, e2, e3, e4, e5])]
 
         d5 = self.decoder5(e5)
@@ -213,8 +213,8 @@ class ResNetUNet_DepthGuiderV2(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        e1, e2, e3, e4, e5 = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        e1, e2, e3, e4, e5 = self.encoder(rgb)
         e1, e2, e3, e4, e5 = [g(f, depth) for g, f in zip(self.depth_guiders, [e1, e2, e3, e4, e5])]
 
         d5 = self.decoder5(e5)
@@ -244,14 +244,14 @@ class ResNetUNet_DepthGuiderV3(nn.Module):
         return rgb,depth
 
     def forward(self, x):
-        _,depth=self._split_rgb_depth(x)
-        e1,e2,e3,e4,e5=self.encoder(x)
-        e1,e2,e3,e4,e5=[g(f,depth) for g,f in zip(self.depth_guiders,[e1,e2,e3,e4,e5])]
-        d5=self.decoder5(e5)
-        d4=self.decoder4(torch.cat((d5,e4),dim=1))
-        d3=self.decoder3(torch.cat((d4,e3),dim=1))
-        d2=self.decoder2(torch.cat((d3,e2),dim=1))
-        d1=self.decoder1(torch.cat((d2,e1),dim=1))
+        rgb, depth = self._split_rgb_depth(x)
+        e1, e2, e3, e4, e5 = self.encoder(rgb)
+        e1, e2, e3, e4, e5 = [g(f, depth) for g, f in zip(self.depth_guiders, [e1, e2, e3, e4, e5])]
+        d5 = self.decoder5(e5)
+        d4 = self.decoder4(torch.cat((d5, e4), dim=1))
+        d3 = self.decoder3(torch.cat((d4, e3), dim=1))
+        d2 = self.decoder2(torch.cat((d3, e2), dim=1))
+        d1 = self.decoder1(torch.cat((d2, e1), dim=1))
         return self.outconv(d1)
 
 
@@ -438,8 +438,8 @@ class ResNetUNet_DepthGuiderProtoV1(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        e1, e2, e3, e4, e5 = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        e1, e2, e3, e4, e5 = self.encoder(rgb)
         e1, e2, e3, e4, e5 = [g(f, depth) for g, f in zip(self.depth_guiders, [e1, e2, e3, e4, e5])]
         contrast_feat = self.projector(e5)
 

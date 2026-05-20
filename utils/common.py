@@ -238,10 +238,18 @@ def _extract_state_dict_from_checkpoint(checkpoint):
     return state_dict
 
 
+def _strip_compile_prefix(state_dict):
+    prefix = "_orig_mod."
+    if any(k.startswith(prefix) for k in state_dict):
+        return {k[len(prefix):]: v for k, v in state_dict.items()}
+    return state_dict
+
+
 def load_checkpoint(model, checkpoint_path):
     logger = logging.getLogger(__name__)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = _extract_state_dict_from_checkpoint(checkpoint)
+    state_dict = _strip_compile_prefix(state_dict)
     model.load_state_dict(state_dict)
     info = {key: checkpoint[key] for key in CHECKPOINT_INFO_KEYS if key in checkpoint}
 

@@ -4,29 +4,17 @@ import re
 import warnings
 
 import cv2
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from core.args import build_test_parser, build_train_parser, finalize_test_args, format_args_for_logging
-from core.runtime import (
-    build_test_run_context,
-    resolve_device,
-)
-from core.testing import (
-    GradCAMHookManager,
-    append_csv_with_lock,
-    append_summary_metrics_to_row,
-    build_result_export_rows,
-    build_result_name,
-    colorize_test_mask,
-    persist_result_tables,
-    prepare_visual_output_dirs,
-    save_multiclass_gradcam_visualization,
-    save_test_rgb_visualization,
-)
+from core.runtime import build_test_run_context, resolve_device
 from data import BaseDataSets
 from models.factory import create_model
 from strategies import create_strategy
@@ -34,27 +22,17 @@ from utils.common import build_run_output_dir, get_fold_seqs_from_path, load_che
 
 warnings.filterwarnings('ignore', message='.*timm.models.layers.*')
 
-SUMMARY_METRIC_PAIRS = (
-    ('Dice', 'dice'),
-    ('IoU', 'iou'),
-    ('Precision', 'precision'),
-    ('Recall', 'recall'),
-    ('Acc', 'acc'),
-)
-PER_CLASS_METRIC_PAIRS = SUMMARY_METRIC_PAIRS
 TEST_NUM_WORKERS = 4
+LAYER_NAMES = ['e1', 'e2', 'e3', 'e4', 'e5']
+HEATMAP_SIZE = 112
+BAR_WIDTH = 160
+BAR_HEIGHT = 112
 
 
-def build_test_feature_parser():
+def build_gamma_beta_parser():
     parser = build_test_parser()
-    parser.add_argument("--feat_vis", type=int, default=1, choices=[0, 1], help="enable feature map visualization")
-    parser.add_argument("--feat_vis_method", type=str, default="gradcam", choices=["gradcam"], help="feature visualization method")
-    parser.add_argument("--feat_vis_layer", type=str, default="", help="name filter for feature/gradcam layers")
-    parser.add_argument("--feat_vis_all_layers", type=int, default=1, choices=[0, 1], help="aggregate all matched layers for gradcam")
-    parser.add_argument("--feat_vis_max_layers", type=int, default=0, help="0 means no limit; otherwise keep last N matched layers")
-    parser.add_argument("--feat_vis_target_class", type=int, default=-1, help="gradcam target class; -1 uses auto non-background class")
-    parser.add_argument("--feat_vis_max_cases", type=int, default=10, help="max cases to export per fold")
-    parser.add_argument("--feat_vis_alpha", type=float, default=0.45, help="overlay alpha for feature visualization")
+    parser.add_argument("--vis_max_cases", type=int, default=5, help="max cases to visualize")
+    parser.add_argument("--vis_output_dir", type=str, default=None, help="output dir override")
     return parser
 
 
@@ -69,23 +47,18 @@ def create_inference_strategy(args, model, device):
 def parse_requested_folds(raw_folds, num_folds):
     if num_folds is None or num_folds <= 1:
         return [None]
-
     if raw_folds in (None, [], ()):
         return list(range(num_folds))
-
     if isinstance(raw_folds, (int, str)):
         raw_folds = [raw_folds]
-
     tokens = []
     for value in raw_folds:
         text = str(value).strip()
         if not text:
             continue
         tokens.extend(part.strip() for part in text.split(',') if part.strip())
-
     if not tokens or '-1' in tokens:
         return list(range(num_folds))
-
     folds = []
     for token in tokens:
         try:
@@ -96,6 +69,54 @@ def parse_requested_folds(raw_folds, num_folds):
             raise ValueError(f'Fold {fold} is out of range for num_folds={num_folds}')
         folds.append(fold)
     return sorted(set(folds))
+
+
+def _collate_test_batch(batch):
+    images, labels, cases, original_shapes, original_images = [], [], [], [], []
+    depth3_list, depth1_list = [], []
+    has_depth3 = False
+    has_depth1 = False
+    for item in batch:
+        images.append(item['image'])
+        labels.append(item['label'])
+        cases.append(item['case'])
+        original_shapes.append(item.get('original_shape'))
+        original_images.append(item.get('original_image'))
+        depth3 = item.get('depth3')
+        depth1 = item.get('depth1')
+        depth3_list.append(depth3)
+        depth1_list.append(depth1)
+        has_depth3 = has_depth3 or depth3 is not None
+        has_depth1 = has_depth1 or depth1 is not None
+    collated = {
+        'image': images, 'label': labels, 'case': cases,
+        'original_shape': original_shapes, 'original_image': original_images,
+    }
+    if has_depth3:
+        collated['depth3'] = depth3_list
+    if has_depth1:
+        collated['depth1'] = depth1_list
+    return collated
+
+
+def _build_test_loader(args, fold, fold_map):
+    depth_channels = args.use_depth if args.use_depth else None
+    depth_uint = int(args.depth_uint)
+    is_depth = bool(depth_channels)
+    test_dataset = BaseDataSets(
+        base_dir=args.root_path, split='test', fold=fold,
+        resize_size=tuple(args.resize_size), load_mode='path',
+        num_classes=args.num_classes,
+        depth_channels=depth_channels if is_depth else None,
+        depth_uint=depth_uint, normalize_method=args.normalize,
+        fold_map=fold_map, use_val=False, for_inference=True,
+        is_depth=is_depth, task=args.task,
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=args.batch_size, shuffle=False,
+        num_workers=TEST_NUM_WORKERS, pin_memory=True, collate_fn=_collate_test_batch,
+    )
+    return test_dataset, test_loader, is_depth, depth_channels
 
 
 def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False):
@@ -133,517 +154,456 @@ def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
     return outputs[0]
 
 
-def _normalize_heatmap(heat: np.ndarray) -> np.ndarray:
-    heat = heat.astype(np.float32)
-    heat -= heat.min()
-    denom = heat.max()
+def _find_depth_guiders(model):
+    for name, module in model.named_modules():
+        if hasattr(module, 'depth_guiders'):
+            return module.depth_guiders
+    return None
+
+
+def _patch_depth_guiders(guiders):
+    records = []
+    original_forwards = []
+
+    for guider in guiders:
+        original_forwards.append(guider.forward)
+
+    for idx, guider in enumerate(guiders):
+        orig_fwd = original_forwards[idx]
+        layer_idx = idx
+        has_fc = hasattr(guider, 'fc_gamma') and hasattr(guider, 'fc_beta')
+
+        if has_fc:
+            fc_gamma = guider.fc_gamma
+            fc_beta = guider.fc_beta
+            depth_enc = guider.depth_encoder
+
+            def make_patched_fc(orig, li, enc, g_mod, b_mod):
+                def patched(rgb_feat, depth):
+                    B, C, H, W = rgb_feat.shape
+                    if depth.shape[2:] != (H, W):
+                        depth = F.interpolate(depth, size=(H, W), mode='bilinear', align_corners=False)
+                    depth_zero = torch.zeros_like(depth)
+                    depth_feat = enc(depth).view(B, -1)
+                    depth_feat_zero = enc(depth_zero).view(B, -1)
+                    gamma = g_mod(depth_feat).view(B, C, 1, 1)
+                    beta = b_mod(depth_feat).view(B, C, 1, 1)
+                    gamma_zero = g_mod(depth_feat_zero).view(B, C, 1, 1)
+                    beta_zero = b_mod(depth_feat_zero).view(B, C, 1, 1)
+                    modulated_feat = gamma * rgb_feat + beta
+                    modulated_feat_zero = gamma_zero * rgb_feat + beta_zero
+                    output = modulated_feat + rgb_feat
+                    output_zero = modulated_feat_zero + rgb_feat
+                    records.append({
+                        'layer_idx': li,
+                        'feat_in': rgb_feat.detach().cpu(),
+                        'feat_mod': modulated_feat.detach().cpu(),
+                        'feat_out': output.detach().cpu(),
+                        'feat_out_zero': output_zero.detach().cpu(),
+                        'feat_delta_depth': (output - output_zero).detach().cpu(),
+                        'gamma': gamma.detach().cpu(),
+                        'beta': beta.detach().cpu(),
+                        'gamma_zero': gamma_zero.detach().cpu(),
+                        'beta_zero': beta_zero.detach().cpu(),
+                        'gamma_delta': (gamma - gamma_zero).detach().cpu(),
+                        'beta_delta': (beta - beta_zero).detach().cpu(),
+                    })
+                    return output
+                return patched
+
+            guider.forward = make_patched_fc(orig_fwd, layer_idx, depth_enc, fc_gamma, fc_beta)
+        else:
+            def make_patched_simple(orig, li):
+                def patched(rgb_feat, depth):
+                    output = orig(rgb_feat, depth)
+                    output_zero = orig(rgb_feat, torch.zeros_like(depth))
+                    records.append({
+                        'layer_idx': li,
+                        'feat_in': rgb_feat.detach().cpu(),
+                        'feat_mod': output.detach().cpu(),
+                        'feat_out': output.detach().cpu(),
+                        'feat_out_zero': output_zero.detach().cpu(),
+                        'feat_delta_depth': (output - output_zero).detach().cpu(),
+                        'gamma': None,
+                        'beta': None,
+                        'gamma_zero': None,
+                        'beta_zero': None,
+                        'gamma_delta': None,
+                        'beta_delta': None,
+                    })
+                    return output
+                return patched
+
+            guider.forward = make_patched_simple(orig_fwd, layer_idx)
+
+    return records, original_forwards
+
+
+def _restore_depth_guiders(guiders, original_forwards):
+    for guider, original_forward in zip(guiders, original_forwards):
+        guider.forward = original_forward
+
+
+def _heatmap_to_rgb(heatmap):
+    heatmap = np.clip(heatmap, 0, 1)
+    heatmap = (heatmap * 255).astype(np.uint8)
+    return cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+
+
+def _diff_to_rgb(diff_2d, size=HEATMAP_SIZE):
+    diff_resized = cv2.resize(diff_2d.astype(np.float32), (size, size), interpolation=cv2.INTER_LINEAR)
+    vmax = max(abs(diff_resized.min()), abs(diff_resized.max()))
+    if vmax < 1e-8:
+        return np.ones((size, size, 3), dtype=np.uint8) * 255
+    norm = diff_resized / vmax
+    norm = np.clip(norm, -1, 1)
+    r = (np.clip(norm, 0, 1) * 255).astype(np.uint8)
+    b = (np.clip(-norm, 0, 1) * 255).astype(np.uint8)
+    g = (255 - np.abs(norm) * 255).astype(np.uint8)
+    return np.stack([b, g, r], axis=-1)
+
+
+def _effect_to_rgb(effect_2d, size=HEATMAP_SIZE):
+    effect_resized = cv2.resize(effect_2d.astype(np.float32), (size, size), interpolation=cv2.INTER_LINEAR)
+    vmax = float(effect_resized.max())
+    if vmax < 1e-8:
+        return np.ones((size, size, 3), dtype=np.uint8) * 255
+    return _heatmap_to_rgb(effect_resized / vmax)
+
+
+def _resize_for_vis(arr, size=HEATMAP_SIZE):
+    arr = arr.astype(np.float32)
+    arr -= arr.min()
+    denom = arr.max()
     if denom > 1e-8:
-        return heat / denom
-    return np.zeros_like(heat)
+        arr /= denom
+    return cv2.resize(arr, (size, size), interpolation=cv2.INTER_LINEAR)
 
 
-def _compute_gradcam_heatmap(args, model, strategy, sample_batch, device, hook_manager, target_class=None):
-    strategy_model = strategy.model if strategy is not None else None
-    if strategy is not None and strategy_model is None:
-        return None
-    target_model = strategy_model if strategy_model is not None else model
-    hook_manager.clear_cache()
-    target_model.zero_grad(set_to_none=True)
-    logits = _predict_logits(args, model, strategy, sample_batch, device, use_grad=True)
-    if logits.ndim != 4 or logits.shape[0] < 1:
-        return None
-    num_classes = int(logits.shape[1])
-    if target_class is None:
-        requested_class = int(args.feat_vis_target_class)
-        if 0 <= requested_class < num_classes:
-            target_class = requested_class
-        elif num_classes == 1:
-            target_class = 0
-        else:
-            class_scores = logits[0].mean(dim=(1, 2))
-            target_class = int(torch.argmax(class_scores[1:]).item() + 1)
-    target_class = int(target_class)
-    if target_class < 0 or target_class >= num_classes:
-        return None
-    score = logits[:, target_class, :, :].mean()
-    score.backward()
-
-    cams = []
-    out_size = tuple(int(v) for v in logits.shape[2:])
-    for layer_name in hook_manager.layer_names:
-        activation = hook_manager.activations.get(layer_name)
-        gradient = hook_manager.gradients.get(layer_name)
-        if activation is None or gradient is None:
-            continue
-        if activation.ndim != 4 or gradient.ndim != 4:
-            continue
-        weight = torch.mean(gradient, dim=(2, 3), keepdim=True)
-        cam = torch.relu(torch.sum(weight * activation, dim=1, keepdim=True))
-        if cam.shape[2:] != out_size:
-            cam = torch.nn.functional.interpolate(cam, size=out_size, mode="bilinear", align_corners=False)
-        cam_np = cam[0, 0].detach().cpu().numpy()
-        cams.append(_normalize_heatmap(cam_np))
-    if not cams:
-        return None
-    return _normalize_heatmap(np.mean(np.stack(cams, axis=0), axis=0))
+def _feat_to_heatmap(feat_tensor):
+    mean_map = feat_tensor.mean(dim=0).numpy()
+    return _resize_for_vis(mean_map)
 
 
-def _collate_test_batch(batch):
-    images, labels, cases, original_shapes, original_images = [], [], [], [], []
-    depth3_list, depth1_list = [], []
-    has_depth3 = False
-    has_depth1 = False
-    for item in batch:
-        images.append(item['image'])
-        labels.append(item['label'])
-        cases.append(item['case'])
-        original_shapes.append(item['original_shape'])
-        original_images.append(item['original_image'])
-        depth3 = item.get('depth3')
-        depth1 = item.get('depth1')
-        depth3_list.append(depth3)
-        depth1_list.append(depth1)
-        has_depth3 = has_depth3 or depth3 is not None
-        has_depth1 = has_depth1 or depth1 is not None
-    collated = {
-        'image': images,
-        'label': labels,
-        'case': cases,
-        'original_shape': original_shapes,
-        'original_image': original_images,
-    }
-    if has_depth3:
-        collated['depth3'] = depth3_list
-    if has_depth1:
-        collated['depth1'] = depth1_list
-    return collated
+def _feat_to_heatmap_paired(feat_a, feat_b, size=HEATMAP_SIZE):
+    map_a = feat_a.mean(dim=0).numpy().astype(np.float32)
+    map_b = feat_b.mean(dim=0).numpy().astype(np.float32)
+    vmin = min(map_a.min(), map_b.min())
+    vmax = max(map_a.max(), map_b.max())
+    denom = vmax - vmin
+    if denom < 1e-8:
+        return np.zeros((size, size), dtype=np.float32), np.zeros((size, size), dtype=np.float32)
+    norm_a = (map_a - vmin) / denom
+    norm_b = (map_b - vmin) / denom
+    return cv2.resize(norm_a, (size, size), interpolation=cv2.INTER_LINEAR), cv2.resize(norm_b, (size, size), interpolation=cv2.INTER_LINEAR)
 
 
-def _build_test_loader(args, fold, fold_map):
-    depth_channels = args.use_depth if args.use_depth else None
-    depth_uint = int(args.depth_uint)
-    is_depth = bool(depth_channels)
-    test_dataset = BaseDataSets(
-        base_dir=args.root_path,
-        split='test',
-        fold=fold,
-        resize_size=tuple(args.resize_size),
-        load_mode='path',
-        num_classes=args.num_classes,
-        depth_channels=depth_channels if is_depth else None,
-        depth_uint=depth_uint,
-        normalize_method=args.normalize,
-        fold_map=fold_map,
-        use_val=False,
-        for_inference=True,
-        is_depth=is_depth,
-        task=args.task,
-    )
-
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=TEST_NUM_WORKERS,
-        pin_memory=True,
-        collate_fn=_collate_test_batch,
-    )
-    return test_dataset, test_loader, is_depth, depth_channels
+def _feat_to_heatmap_shared(feat_tensors, size=HEATMAP_SIZE):
+    maps = [feat.mean(dim=0).numpy().astype(np.float32) for feat in feat_tensors]
+    vmin = min(m.min() for m in maps)
+    vmax = max(m.max() for m in maps)
+    denom = vmax - vmin
+    if denom < 1e-8:
+        return [np.zeros((size, size), dtype=np.float32) for _ in maps]
+    return [cv2.resize((m - vmin) / denom, (size, size), interpolation=cv2.INTER_LINEAR) for m in maps]
 
 
-def calculate_metric_percase(pred, gt, smooth=1e-6):
-    pred = pred.astype(np.uint8)
-    gt = gt.astype(np.uint8)
-    if pred.sum() == 0 and gt.sum() == 0:
-        return {
-            'Dice': float('nan'),
-            'IoU': float('nan'),
-            'TP': 0.0,
-            'FP': 0.0,
-            'FN': 0.0,
-            'Acc': float((pred == gt).mean()),
-            'Valid': False,
-        }
-    intersection = np.logical_and(pred, gt).sum()
-    union = np.logical_or(pred, gt).sum()
-    dice = (2.0 * intersection + smooth) / (pred.sum() + gt.sum() + smooth)
-    iou = (intersection + smooth) / (union + smooth)
-    tp = float(intersection)
-    fp = float(np.logical_and(pred, np.logical_not(gt)).sum())
-    fn = float(np.logical_and(np.logical_not(pred), gt).sum())
-    acc = float((pred == gt).mean())
-    return {'Dice': dice, 'IoU': iou, 'TP': tp, 'FP': fp, 'FN': fn, 'Acc': acc, 'Valid': True}
-
-
-def _resize_mask_to_shape(mask: np.ndarray, target_shape) -> np.ndarray:
-    mask = np.asarray(mask)
-    target_h, target_w = tuple(int(v) for v in target_shape[:2])
-    if mask.shape == (target_h, target_w):
-        return mask
-    return cv2.resize(mask.astype(np.uint8), (target_w, target_h), interpolation=cv2.INTER_NEAREST)
-
-
-def inference(
-    args,
-    model,
-    test_loader,
-    device,
-    fold_label='f0',
-    rgb_output_dir=None,
-    rescale=True,
-    strategy=None,
-    feat_output_dir=None,
-):
-    logger = logging.getLogger(__name__)
-    if strategy is None:
-        model.eval()
-    elif hasattr(strategy, "eval"):
-        strategy.eval()
-    all_metrics = []
-    gradcam_hooks = None
-    if args.feat_vis:
-        target_model = strategy.model if strategy is not None else model
-        if target_model is None:
-            target_model = model
-        gradcam_hooks = GradCAMHookManager(
-            target_model,
-            layer_filter=args.feat_vis_layer,
-            all_layers=bool(args.feat_vis_all_layers),
-            max_layers=int(args.feat_vis_max_layers),
-        )
-        if not gradcam_hooks.layer_names:
-            logger.warning("Grad-CAM found no Conv2d layers. Feature visualization will be skipped.")
-    saved_feat_cases = 0
-    max_feat_cases = max(0, int(args.feat_vis_max_cases))
-    pbar = tqdm(test_loader, desc='Inference')
-    for batch_idx, batch in enumerate(pbar):
-        if batch_idx == 0:
-            logger.info('First batch received, processing %s samples...', len(batch['case']))
-        labels = batch['label']
-        cases = batch['case']
-        original_images = batch.get('original_image', [None] * len(cases))
-        for index, case in enumerate(cases):
-            sample_batch = {"image": batch["image"][index].unsqueeze(0)}
-            for depth_key in ("depth3", "depth1"):
-                depth_values = batch.get(depth_key)
-                if depth_values is None:
-                    continue
-                depth_value = depth_values[index]
-                if depth_value is not None:
-                    sample_batch[depth_key] = depth_value.unsqueeze(0)
-            sample_batch["label"] = labels[index]
-            label_value = labels[index]
-            label_np = label_value.cpu().numpy() if torch.is_tensor(label_value) else np.asarray(label_value)
-            outputs = _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
-            pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze().cpu().numpy()
-            if args.rgb and rgb_output_dir is not None and original_images[index] is not None:
-                label_vis_np = label_np
-                if args.rgb == 2:
-                    label_vis_np = _resize_mask_to_shape(label_np, pred.shape)
-                save_test_rgb_visualization(
-                    image=original_images[index],
-                    label=label_vis_np,
-                    pred=pred,
-                    output_dir=rgb_output_dir,
-                    case_name=case,
-                    mode=args.rgb,
-                    num_classes=args.num_classes,
-                )
-
-            can_save_feat = (
-                args.feat_vis
-                and feat_output_dir is not None
-                and original_images[index] is not None
-                and saved_feat_cases < max_feat_cases
-            )
-            if can_save_feat and gradcam_hooks is not None and gradcam_hooks.layer_names:
-                class_heats = []
-                has_any_heat = False
-                for class_idx in range(int(args.num_classes)):
-                    heat = _compute_gradcam_heatmap(
-                        args,
-                        model,
-                        strategy,
-                        sample_batch,
-                        device,
-                        gradcam_hooks,
-                        target_class=class_idx,
-                    )
-                    class_heats.append(heat)
-                    has_any_heat = has_any_heat or heat is not None
-                if has_any_heat:
-                    save_multiclass_gradcam_visualization(
-                        image=original_images[index],
-                        class_heats=class_heats,
-                        output_dir=feat_output_dir,
-                        case_name=case,
-                        alpha=float(args.feat_vis_alpha),
-                    )
-                    saved_feat_cases += 1
-
-            pred_for_metrics = _resize_mask_to_shape(pred, label_np.shape)
-            seq = None
-            for token in re.split(r'[_-]', str(case)):
-                if token.isdigit():
-                    seq = int(token)
-                    break
-                match = re.search(r'\d+', token)
-                if match:
-                    seq = int(match.group())
-                    break
-            for cls in range(1, args.num_classes):
-                metrics = calculate_metric_percase(pred_for_metrics == cls, label_np == cls)
-                metrics['Case'] = case
-                metrics['Class'] = cls
-                metrics['Fold'] = fold_label
-                metrics['Seq'] = seq
-                all_metrics.append(metrics)
-    if gradcam_hooks is not None:
-        gradcam_hooks.remove()
-    return all_metrics
-
-
-def summarize_metrics(all_metrics, num_classes=2):
-    valid_metrics = [metric for metric in all_metrics if metric.get('Valid', True)]
-    if not valid_metrics:
-        return {}
-
-    summary = {}
-    derived_metric_values = {
-        'Precision': [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in valid_metrics],
-        'Recall': [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in valid_metrics],
-    }
-    for summary_metric, _ in SUMMARY_METRIC_PAIRS:
-        if summary_metric in derived_metric_values:
-            values = derived_metric_values[summary_metric]
-        else:
-            values = [item[summary_metric] for item in valid_metrics]
-        summary[f'Avg_{summary_metric}'] = f'{np.mean(values):.4f} ± {np.std(values):.4f}'
-
-    for cls in range(1, num_classes):
-        class_metrics = [item for item in valid_metrics if item['Class'] == cls]
-        if not class_metrics:
-            continue
-        dice_vals = [item['Dice'] for item in class_metrics]
-        iou_vals = [item['IoU'] for item in class_metrics]
-        acc_vals = [item['Acc'] for item in class_metrics]
-        prec_vals = [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in class_metrics]
-        rec_vals = [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in class_metrics]
-        summary[f'C{cls}_Dice'] = f'{np.mean(dice_vals):.4f} ± {np.std(dice_vals):.4f}'
-        summary[f'C{cls}_IoU'] = f'{np.mean(iou_vals):.4f} ± {np.std(iou_vals):.4f}'
-        summary[f'C{cls}_Precision'] = f'{np.mean(prec_vals):.4f} ± {np.std(prec_vals):.4f}'
-        summary[f'C{cls}_Recall'] = f'{np.mean(rec_vals):.4f} ± {np.std(rec_vals):.4f}'
-        summary[f'C{cls}_Acc'] = f'{np.mean(acc_vals):.4f} ± {np.std(acc_vals):.4f}'
-    return summary
-
-
-def summarize_records(records, num_classes=2):
-    if not records:
-        return {}
-    case_validity = {}
-    for index, record in enumerate(records):
-        case_key = record.get('Case')
-        if case_key is None:
-            case_key = f'__record_{index}'
-        is_valid = _is_valid_metric_record(record)
-        if case_key not in case_validity:
-            case_validity[case_key] = is_valid
-        else:
-            case_validity[case_key] = case_validity[case_key] and is_valid
-    summary = {
-        'Total_Samples': len(case_validity),
-        'Valid_Samples': sum(1 for is_valid in case_validity.values() if is_valid),
-    }
-    summary.update(summarize_metrics(records, num_classes=num_classes))
-    return summary
-
-
-def _is_valid_metric_record(record: dict) -> bool:
-    value = record.get('Valid', True)
-    if value is None or (isinstance(value, float) and np.isnan(value)):
-        return True
-    if isinstance(value, (bool, np.bool_)):
-        return bool(value)
-    return str(value).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
-
-
-def build_seq_rows(records, num_classes=2):
-    if not records:
-        return []
-    df = pd.DataFrame(records)
-    if 'Seq' not in df.columns:
-        return []
-    df = df[df['Seq'].notna()].copy()
-    if df.empty:
-        return []
-
-    rows = []
-    grouped = df.groupby(['Fold', 'Seq'], dropna=False)
-    keys = sorted(
-        grouped.groups.keys(),
-        key=lambda item: (
-            float('inf')
-            if str(item[0]) == 'ALL_Folds'
-            else (int(match.group()) if (match := re.search(r'\d+', str(item[0]))) else -1),
-            int(item[1]),
-        ),
-    )
-    for fold, seq in keys:
-        summary = summarize_records(grouped.get_group((fold, seq)).to_dict(orient='records'), num_classes=num_classes)
-        row = {
-            'Fold': fold,
-            'Seq': int(seq),
-            'Total_Samples': summary.get('Total_Samples', 0),
-            'Valid_Samples': summary.get('Valid_Samples', 0),
-        }
-        append_summary_metrics_to_row(row, summary)
-        rows.append(row)
-    return rows
-
-
-def build_fold_rows(records, num_classes=2):
-    if not records:
-        return []
-    df = pd.DataFrame(records)
-    rows = []
-    fold_labels = sorted(
-        df['Fold'].dropna().unique().tolist(),
-        key=lambda label: (
-            float('inf')
-            if str(label) == 'ALL_Folds'
-            else (int(match.group()) if (match := re.search(r'\d+', str(label))) else -1)
-        ),
-    )
-    for fold_label in fold_labels:
-        summary = summarize_records(df[df['Fold'] == fold_label].to_dict(orient='records'), num_classes=num_classes)
-        row = {
-            'Fold': fold_label,
-            'Seq': '',
-            'Total_Samples': summary.get('Total_Samples', 0),
-            'Valid_Samples': summary.get('Valid_Samples', 0),
-        }
-        append_summary_metrics_to_row(row, summary)
-        rows.append(row)
-
-    all_summary = summarize_records(records, num_classes=num_classes)
-    all_row = {
-        'Fold': 'ALL_Folds',
-        'Seq': '',
-        'Total_Samples': all_summary.get('Total_Samples', 0),
-        'Valid_Samples': all_summary.get('Valid_Samples', 0),
-    }
-    append_summary_metrics_to_row(all_row, all_summary)
-    rows.append(all_row)
-    return rows
-
-
-def run_one_fold(args, fold, fold_map, context):
-    logger = logging.getLogger(__name__)
-    device = resolve_device(args)
-    snapshot_path = args.snapshot_path or build_run_output_dir(args, mode='train', fold=fold)
-    fold_label = f"f{0 if fold is None else fold}"
-
-    logger.info('\n%s', '=' * 60)
-    logger.info('Testing %s', fold_label)
-    logger.info('Snapshot path: %s', snapshot_path)
-    logger.info('%s', '=' * 60)
-
-    model = create_model(args).to(device)
-    checkpoint_name = 'model_best.pth' if context.checkpoint_type == 'best' else 'model_final.pth'
-    checkpoint_path = os.path.join(snapshot_path, checkpoint_name)
-    info = load_checkpoint(model, checkpoint_path)
-    strategy = create_inference_strategy(args, model, device)
-    train_best_dice = info.get('best_performance', None)
-    logger.info('Loaded %s checkpoint from %s', context.checkpoint_type, checkpoint_path)
-    if train_best_dice is not None:
-        logger.info('Training best dice: %.4f', train_best_dice)
-
-    test_dataset, test_loader, is_depth, depth_channels = _build_test_loader(args, fold, fold_map)
-    logger.info('Testing %s images...', len(test_dataset))
-    logger.info('DataLoader: batch_size=%s, num_workers=%s, pin_memory=True', args.batch_size, TEST_NUM_WORKERS)
-    logger.info('Dataset: is_depth=%s, depth_channels=%s', is_depth, depth_channels)
-
-    rgb_output_dir, feat_output_dir = prepare_visual_output_dirs(args, fold, logger)
-
-    records = inference(
-        args,
-        model,
-        test_loader,
-        device,
-        fold_label,
-        rgb_output_dir=rgb_output_dir,
-        strategy=strategy,
-        feat_output_dir=feat_output_dir,
-    )
-    summary = summarize_records(records, num_classes=args.num_classes)
-    if summary:
-        logger.info('Fold %s summary:', fold_label)
-        for key, value in summary.items():
-            logger.info('  %s: %s', key, value)
+def _make_bar_chart(values, title, compare_values=None, width=BAR_WIDTH, height=BAR_HEIGHT):
+    fig, ax = plt.subplots(1, 1, figsize=(width / 100, height / 100), dpi=100)
+    n = len(values)
+    x = np.arange(n)
+    if compare_values is None:
+        colors = ['#2196F3' if v >= 0 else '#F44336' for v in values]
+        ax.bar(x, values, color=colors, width=0.8)
     else:
-        logger.warning('No valid metrics produced for %s', fold_label)
-    return train_best_dice, records
+        compare_values = np.asarray(compare_values)
+        bar_w = 0.38
+        ax.bar(x - bar_w / 2, values, color='#1E88E5', width=bar_w, label='real')
+        ax.bar(x + bar_w / 2, compare_values, color='#FB8C00', width=bar_w, alpha=0.85, label='zero')
+        ax.legend(loc='lower right', fontsize=4, frameon=False, borderaxespad=0.1, handlelength=1.2)
+    ax.set_title(title, fontsize=7, pad=2)
+    ax.tick_params(labelsize=5)
+    ax.set_xlim(-0.5, n - 0.5)
+    mean_val = np.mean(values)
+    std_val = np.std(values)
+    if compare_values is None:
+        ax.axhline(y=mean_val, color='green', linestyle='--', linewidth=0.5)
+        text = f'mean={mean_val:.3f}\nstd={std_val:.3f}'
+    else:
+        delta = values - compare_values
+        text = f'r={mean_val:.3f}\nz={np.mean(compare_values):.3f}\n|d|={np.mean(np.abs(delta)):.3f}'
+    ax.text(0.02, 0.95, text, transform=ax.transAxes, fontsize=5, va='top',
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8))
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    fig.tight_layout(pad=0.3)
+    fig.canvas.draw()
+    img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy()
+    plt.close(fig)
+    return img
+
+
+def _make_header(total_width):
+    header_h = 40
+    header = np.ones((header_h, total_width, 3), dtype=np.uint8) * 255
+    labels = ['RGB', 'Depth', 'Feat_in', 'Feat_out', 'Feat_zero', 'Depth_eff_abs', 'Gamma(r/z)', 'Beta(r/z)']
+    col_widths = [HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, HEATMAP_SIZE, BAR_WIDTH, BAR_WIDTH]
+    x_offset = 0
+    for label, w in zip(labels, col_widths):
+        cx = x_offset + w // 2
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)[0]
+        cv2.putText(header, label, (cx - text_size[0] // 2, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+        x_offset += w
+    return header
+
+
+def _make_layer_row(record, rgb_img, depth_img, layer_idx):
+    feat_in_t = record['feat_in'][0]
+    feat_out_t = record['feat_out'][0]
+    feat_out_zero_t = record['feat_out_zero'][0]
+    feat_in_map, feat_out_map, feat_zero_map = _feat_to_heatmap_shared([feat_in_t, feat_out_t, feat_out_zero_t])
+    feat_in_bgr = _heatmap_to_rgb(feat_in_map)
+    feat_out_bgr = _heatmap_to_rgb(feat_out_map)
+    feat_zero_bgr = _heatmap_to_rgb(feat_zero_map)
+    effect = record['feat_delta_depth'][0].abs().mean(dim=0).numpy().astype(np.float32)
+    effect_bgr = _effect_to_rgb(effect, HEATMAP_SIZE)
+    eff_mean = float(record['feat_delta_depth'][0].abs().mean().item())
+    eff_rel = eff_mean / (float(feat_in_t.abs().mean().item()) + 1e-8)
+    cv2.putText(effect_bgr, f'm={eff_mean:.4f}', (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+    cv2.putText(effect_bgr, f'r={eff_rel:.3f}', (4, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+
+    rgb_resized = cv2.resize(rgb_img, (HEATMAP_SIZE, HEATMAP_SIZE))
+    if len(rgb_resized.shape) == 2:
+        rgb_resized = cv2.cvtColor(rgb_resized, cv2.COLOR_GRAY2BGR)
+    elif rgb_resized.shape[2] == 4:
+        rgb_resized = cv2.cvtColor(rgb_resized, cv2.COLOR_BGRA2BGR)
+
+    depth_resized = cv2.resize(depth_img, (HEATMAP_SIZE, HEATMAP_SIZE))
+    if len(depth_resized.shape) == 2:
+        depth_vis = _heatmap_to_rgb(_resize_for_vis(depth_resized.astype(np.float32)))
+    else:
+        depth_vis = depth_resized
+
+    gamma = record['gamma']
+    gamma_zero = record['gamma_zero']
+    beta = record['beta']
+    beta_zero = record['beta_zero']
+    if gamma is not None and gamma.ndim >= 2:
+        gamma_vals = gamma[0].squeeze().numpy()
+        gamma_zero_vals = gamma_zero[0].squeeze().numpy()
+    else:
+        gamma_vals = np.zeros(1)
+        gamma_zero_vals = np.zeros(1)
+    if beta is not None and beta.ndim >= 2:
+        beta_vals = beta[0].squeeze().numpy()
+        beta_zero_vals = beta_zero[0].squeeze().numpy()
+    else:
+        beta_vals = np.zeros(1)
+        beta_zero_vals = np.zeros(1)
+
+    C = len(gamma_vals)
+    gamma_img = _make_bar_chart(gamma_vals, f'L{layer_idx} gamma (C={C})', compare_values=gamma_zero_vals)
+    beta_img = _make_bar_chart(beta_vals, f'L{layer_idx} beta (C={C})', compare_values=beta_zero_vals)
+
+    row = np.hstack([rgb_resized, depth_vis, feat_in_bgr, feat_out_bgr, feat_zero_bgr, effect_bgr, gamma_img, beta_img])
+    return row
+
+
+def visualize_gamma_beta(rgb_img, depth_img, records, save_path):
+    if not records:
+        return
+    records.sort(key=lambda r: r['layer_idx'])
+
+    total_width = 6 * HEATMAP_SIZE + 2 * BAR_WIDTH
+    header = _make_header(total_width)
+    rows = [header]
+    for rec in records:
+        row = _make_layer_row(rec, rgb_img, depth_img, rec['layer_idx'])
+        rows.append(row)
+
+    min_w = min(r.shape[1] for r in rows)
+    rows = [r[:, :min_w] for r in rows]
+    canvas = np.vstack(rows)
+    cv2.imwrite(save_path, canvas)
+
+
+def _save_per_channel_vis(record, output_dir, case_name):
+    layer_idx = record['layer_idx']
+    feat_in = record['feat_in'][0]
+    feat_out = record['feat_out'][0]
+    feat_out_zero = record['feat_out_zero'][0]
+    C = feat_in.shape[0]
+    n_show = C
+
+    feat_in_np = feat_in.numpy().astype(np.float32)
+    feat_out_np = feat_out.numpy().astype(np.float32)
+    feat_out_zero_np = feat_out_zero.numpy().astype(np.float32)
+    diff_np = feat_out_np - feat_out_zero_np
+
+    gamma_vals = record['gamma'][0].squeeze().numpy() if record['gamma'] is not None else None
+    beta_vals = record['beta'][0].squeeze().numpy() if record['beta'] is not None else None
+    gamma_zero_vals = record['gamma_zero'][0].squeeze().numpy() if record['gamma_zero'] is not None else None
+    beta_zero_vals = record['beta_zero'][0].squeeze().numpy() if record['beta_zero'] is not None else None
+    gamma_delta_vals = record['gamma_delta'][0].squeeze().numpy() if record['gamma_delta'] is not None else None
+    beta_delta_vals = record['beta_delta'][0].squeeze().numpy() if record['beta_delta'] is not None else None
+
+    cell_h = cell_w = 64
+    text_w = 300
+    n_cols = 4
+    header_h = 30
+    canvas = np.ones((header_h + n_show * cell_h, n_cols * cell_w + text_w, 3), dtype=np.uint8) * 255
+
+    def _put_center(text, col, y_pos):
+        tw = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0][0]
+        cv2.putText(canvas, text, (col * cell_w + (cell_w - tw) // 2, y_pos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+    _put_center('feat_in', 0, 22)
+    _put_center('feat_out', 1, 22)
+    _put_center('feat_zero', 2, 22)
+    _put_center('depth_eff', 3, 22)
+    cv2.putText(canvas, 'g/b real zero delta', (n_cols * cell_w + 10, 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+    for ch in range(n_show):
+        cell_maps = [feat_in_np[ch], feat_out_np[ch], feat_out_zero_np[ch]]
+        vmin = min(m.min() for m in cell_maps)
+        vmax = max(m.max() for m in cell_maps)
+        denom = vmax - vmin
+        if denom < 1e-8:
+            norm_maps = [np.zeros((cell_w, cell_h), dtype=np.float32) for _ in cell_maps]
+        else:
+            norm_maps = [cv2.resize((m - vmin) / denom, (cell_w, cell_h)) for m in cell_maps]
+        in_bgr = _heatmap_to_rgb(norm_maps[0])
+        out_bgr = _heatmap_to_rgb(norm_maps[1])
+        zero_bgr = _heatmap_to_rgb(norm_maps[2])
+        diff_bgr = _diff_to_rgb(diff_np[ch], cell_w)
+
+        y = header_h + ch * cell_h
+        canvas[y:y + cell_h, 0:cell_w] = in_bgr
+        canvas[y:y + cell_h, cell_w:2 * cell_w] = out_bgr
+        canvas[y:y + cell_h, 2 * cell_w:3 * cell_w] = zero_bgr
+        canvas[y:y + cell_h, 3 * cell_w:4 * cell_w] = diff_bgr
+
+        g = gamma_vals[ch] if gamma_vals is not None else float('nan')
+        gz = gamma_zero_vals[ch] if gamma_zero_vals is not None else float('nan')
+        dg = gamma_delta_vals[ch] if gamma_delta_vals is not None else float('nan')
+        b = beta_vals[ch] if beta_vals is not None else float('nan')
+        bz = beta_zero_vals[ch] if beta_zero_vals is not None else float('nan')
+        db = beta_delta_vals[ch] if beta_delta_vals is not None else float('nan')
+        txt_x = n_cols * cell_w + 5
+        cv2.putText(canvas, f'ch{ch}', (txt_x, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(canvas, f'g={g:.4f} gz={gz:.4f} dg={dg:.4f}', (txt_x, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 200), 1)
+        cv2.putText(canvas, f'b={b:.4f} bz={bz:.4f} db={db:.4f}', (txt_x, y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 128, 0), 1)
+        cv2.putText(canvas, f'|eff|={(np.abs(diff_np[ch]).mean()):.4f}', (txt_x, y + 52), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (64, 64, 64), 1)
+
+    save_path = os.path.join(output_dir, f'{case_name}_L{layer_idx}_channels.png')
+    cv2.imwrite(save_path, canvas)
+
+
+def run_one_sample(args, model, strategy, device, sample_batch, case_name, output_dir):
+    logger = logging.getLogger(__name__)
+    target_model = strategy.model if strategy is not None else model
+    guiders = _find_depth_guiders(target_model)
+    if guiders is None:
+        logger.error("No DepthGuiders found in model")
+        return
+    os.makedirs(output_dir, exist_ok=True)
+
+    patched_records, original_forwards = _patch_depth_guiders(list(guiders))
+
+    strategy.eval() if strategy is not None else model.eval()
+    try:
+        with torch.no_grad():
+            _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
+    finally:
+        _restore_depth_guiders(list(guiders), original_forwards)
+
+    if not patched_records:
+        logger.warning("No DepthGuider records captured for %s", case_name)
+        return
+
+    rgb_tensor = sample_batch['image'][0]
+    if rgb_tensor.shape[0] >= 3:
+        rgb_np = rgb_tensor[:3].permute(1, 2, 0).numpy()
+        rgb_np = (rgb_np * 255).clip(0, 255).astype(np.uint8)
+    else:
+        rgb_np = (rgb_tensor[0].numpy() * 255).clip(0, 255).astype(np.uint8)
+
+    depth_tensor = sample_batch.get('depth1')
+    if depth_tensor is None:
+        depth_tensor = sample_batch.get('depth3')
+    if depth_tensor is not None:
+        if depth_tensor.dim() == 4:
+            depth_np = depth_tensor[0, 0].numpy()
+        else:
+            depth_np = depth_tensor[0].numpy()
+    else:
+        depth_np = np.zeros(rgb_np.shape[:2], dtype=np.float32)
+
+    save_path = os.path.join(output_dir, f'{case_name}_gamma_beta.png')
+    visualize_gamma_beta(rgb_np, depth_np, patched_records, save_path)
+    logger.info('Saved: %s', save_path)
+
+    for rec in patched_records:
+        _save_per_channel_vis(rec, output_dir, case_name)
 
 
 def main():
-    args = finalize_test_args(build_test_feature_parser().parse_args())
+    args = finalize_test_args(build_gamma_beta_parser().parse_args())
     logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
     logger = logging.getLogger(__name__)
 
     logger.info('Args: %s', format_args_for_logging(args))
     logger.info('Strategy: %s', args.way)
-    logger.info('Model: %s', args.model)
-    logger.info('Device: %s', args.device)
-    if args.no_val:
-        logger.info('No-val test mode enabled: final checkpoint will be used')
 
-    raw_requested_folds = args.fold
-    requested_folds = parse_requested_folds(raw_requested_folds, args.num_folds)
-    logger.info('Requested folds: %s', requested_folds)
-
+    requested_folds = parse_requested_folds(args.fold, args.num_folds)
     args.fold = None
     context = build_test_run_context(args)
-    fold_map = get_fold_seqs_from_path(args.root_path, args.task) if args.num_folds is not None and args.num_folds > 1 else {}
+    fold_map = get_fold_seqs_from_path(args.root_path, args.task) if args.num_folds and args.num_folds > 1 else {}
 
-    train_best_by_fold = {}
-    all_records = []
+    device = resolve_device(args)
+    max_cases = max(0, int(args.vis_max_cases))
+
     for fold in requested_folds:
-        train_best_dice, fold_records = run_one_fold(args, fold, fold_map, context)
-        if not fold_records:
-            continue
         fold_label = f"f{0 if fold is None else fold}"
-        if train_best_dice is not None:
-            train_best_by_fold[fold_label] = float(train_best_dice)
-        all_records.extend(fold_records)
+        snapshot_path = args.snapshot_path or build_run_output_dir(args, mode='train', fold=fold)
+        logger.info('Fold %s | snapshot: %s', fold_label, snapshot_path)
 
-    if not all_records:
-        logger.warning('No fold results produced.')
-        return
+        model = create_model(args).to(device)
+        checkpoint_name = 'model_best.pth' if context.checkpoint_type == 'best' else 'model_final.pth'
+        checkpoint_path = os.path.join(snapshot_path, checkpoint_name)
+        load_checkpoint(model, checkpoint_path)
 
-    fold_rows = build_fold_rows(all_records, num_classes=args.num_classes)
-    seq_rows = build_seq_rows(all_records, num_classes=args.num_classes)
-    fold_output_rows, seq_output_rows, all_folds_summary_rows = build_result_export_rows(
-        args,
-        context,
-        fold_rows,
-        seq_rows,
-        train_best_by_fold,
-        total_folds=len(requested_folds),
-    )
+        strategy = create_inference_strategy(args, model, device)
+        test_dataset, test_loader, _, _ = _build_test_loader(args, fold, fold_map)
 
-    global_results_path, seq_results_path, all_folds_summary_path = persist_result_tables(
-        context,
-        fold_output_rows,
-        seq_output_rows,
-        all_folds_summary_rows,
-    )
+        output_dir = args.vis_output_dir or os.path.join(
+            build_run_output_dir(args, mode='test', fold=fold), 'gamma_beta_vis'
+        )
+        os.makedirs(output_dir, exist_ok=True)
 
-    logger.info('Global fold results saved to: %s', global_results_path)
-    logger.info('Global sequence results saved to: %s', seq_results_path)
-    logger.info('Global all-fold summary saved to: %s', all_folds_summary_path)
-    logger.info('Final ALL_Folds summary:')
-    for line in pd.DataFrame(all_folds_summary_rows).to_string(index=False).split('\n'):
-        logger.info(line)
+        saved = 0
+        for batch in tqdm(test_loader, desc=f'Fold {fold_label}'):
+            if saved >= max_cases:
+                break
+            for index, case in enumerate(batch['case']):
+                if saved >= max_cases:
+                    break
+                sample_batch = {"image": batch["image"][index].unsqueeze(0)}
+                for depth_key in ("depth3", "depth1"):
+                    depth_values = batch.get(depth_key)
+                    if depth_values is None:
+                        continue
+                    depth_value = depth_values[index]
+                    if depth_value is not None:
+                        sample_batch[depth_key] = depth_value.unsqueeze(0)
+                sample_batch["label"] = batch["label"][index]
+                run_one_sample(args, model, strategy, device, sample_batch, case, output_dir)
+                saved += 1
+
+        logger.info('Fold %s: saved %d visualizations to %s', fold_label, saved, output_dir)
 
 
 if __name__ == '__main__':

@@ -163,8 +163,8 @@ class DepthUNet_DepthGuiderV1(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        e1, e2, e3, e4, e5 = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        e1, e2, e3, e4, e5 = self.encoder(rgb)
         e1, e2, e3, e4, e5 = [g(f, depth) for g, f in zip(self.depth_guiders, [e1, e2, e3, e4, e5])]
         d5 = self.decoder5(e5)
         d4 = self.decoder4(torch.cat((d5, e4), dim=1))
@@ -359,8 +359,8 @@ class DepthUNet_DepthGuiderProtoV1(nn.Module):
         return rgb, depth
 
     def forward(self, x):
-        _, depth = self._split_rgb_depth(x)
-        e1, e2, e3, e4, e5 = self.encoder(x)
+        rgb, depth = self._split_rgb_depth(x)
+        e1, e2, e3, e4, e5 = self.encoder(rgb)
         e1, e2, e3, e4, e5 = [g(f, depth) for g, f in zip(self.depth_guiders, [e1, e2, e3, e4, e5])]
         contrast_feat = self.projector(e5)
         d5 = self.decoder5(e5)
