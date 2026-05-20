@@ -11,6 +11,18 @@ from tqdm import tqdm
 from data.transforms import _build_tensor_sample, _normalize_array, _resize_numpy_array
 from utils.common import get_task_label_dir
 
+
+def _normalize_depth1(depth1):
+    depth1_dtype = depth1.dtype
+    depth1 = depth1.astype(np.float32)
+    if np.issubdtype(depth1_dtype, np.integer):
+        depth1_max = float(np.iinfo(depth1_dtype).max)
+        if depth1_max > 1.0 and float(depth1.max()) > 1.0:
+            depth1 = depth1 / depth1_max
+    elif float(depth1.max()) > 1.0:
+        depth1 = depth1 / 255.0
+    return depth1
+
 logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG")
@@ -274,19 +286,11 @@ class BaseDataSets(Dataset):
     def _normalize_inputs(self, image, depth3=None, depth1=None):
         image = _normalize_array(image, method=self.normalize_method)
         if depth3 is not None:
-            depth3 = _normalize_array(depth3, method=self.normalize_method)
+            depth3 = depth3.astype(np.float32)
+            if depth3.max() > 1.0:
+                depth3 = depth3 / 255.0
         if depth1 is not None:
-            if self.normalize_method == "255":
-                depth1_dtype = depth1.dtype
-                depth1 = depth1.astype(np.float32)
-                if np.issubdtype(depth1_dtype, np.integer):
-                    depth1_max = float(np.iinfo(depth1_dtype).max)
-                    if depth1_max > 1.0 and float(depth1.max()) > 1.0:
-                        depth1 = depth1 / depth1_max
-                elif float(depth1.max()) > 1.0:
-                    depth1 = depth1 / 255.0
-            else:
-                depth1 = _normalize_array(depth1, method=self.normalize_method)
+            depth1 = _normalize_depth1(depth1)
         return image, depth3, depth1
 
     def _to_train_or_val_item(self, sample, idx):
@@ -449,7 +453,9 @@ class H5DataSets(Dataset):
     def _normalize_inputs(self, image, depth3=None, depth1=None):
         image = _normalize_array(image, method=self.normalize_method)
         if depth3 is not None:
-            depth3 = _normalize_array(depth3, method=self.normalize_method)
+            depth3 = depth3.astype(np.float32)
+            if depth3.max() > 1.0:
+                depth3 = depth3 / 255.0
         if depth1 is not None:
-            depth1 = _normalize_array(depth1, method=self.normalize_method)
+            depth1 = _normalize_depth1(depth1)
         return image, depth3, depth1
