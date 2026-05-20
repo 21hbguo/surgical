@@ -489,10 +489,12 @@ def main():
     for fold in resolve_train_folds(args):
         run_args = resolve_train_run_args(args, fold)
 
-        if os.path.exists(run_args.snapshot_path):
+        best_model_path = os.path.join(run_args.snapshot_path, "model_best.pth")
+        final_model_path = os.path.join(run_args.snapshot_path, "model_final.pth")
+        if os.path.exists(best_model_path) and os.path.exists(final_model_path):
             if not run_args.retrain:
                 fold_info = f"f{run_args.fold}" if run_args.fold is not None else "no fold"
-                logging.warning("Snapshot path exists: %s, fold=%s, skip training unless --retrain is set.", run_args.snapshot_path, fold_info)
+                logging.warning("Checkpoints exist: %s, %s, fold=%s, skip training unless --retrain is set.", best_model_path, final_model_path, fold_info)
                 continue
             for filename in ("model_best.pth", "model_final.pth"):
                 path = os.path.join(run_args.snapshot_path, filename)
