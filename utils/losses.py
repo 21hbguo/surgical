@@ -404,3 +404,62 @@ class CosineSimilarityContrastiveLoss(nn.Module):
             loss = F.cross_entropy(similarity_matrix, labels)
 
             return loss, pos_sim.mean(), torch.tensor(0.0, device=anchor.device)
+
+
+# ============== RDNet Losses ==============
+
+def dice_coefficient(pred, target, eps=1e-6):
+    intersection = (pred * target).sum()
+    return 2 * intersection / (pred.sum() + target.sum() + eps)
+
+
+def rdnet_contrastive_loss(pred_rgb_l, pred_rgb_u, pred_depth_l, pred_depth_u):
+    """RDNet对比学习损失：使用Dice系数作为相似度的InfoNCE风格损失"""
+    pred_rgb = torch.cat([pred_rgb_l, pred_rgb_u])
+    pred_depth = torch.cat([pred_depth_l, pred_depth_u])
+    N = len(pred_rgb)
+
+    positive_pairs = [(pred_rgb[i], pred_depth[i]) for i in range(N)]
+
+    negative_pool = []
+    for i in range(N):
+        for j in range(N):
+            if j != i:
+                negative_pool.append(pred_rgb[j])
+                negative_pool.append(pred_depth[j])
+
+    loss = 0.0
+    for pos_pair in positive_pairs:
+        s_pos = dice_coefficient(pos_pair[0], pos_pair[1])
+        neg_dice = sum(torch.exp(dice_coefficient(pos_pair[0], neg)) for neg in negative_pool)
+        loss += -torch.log(torch.exp(s_pos) / (torch.exp(s_pos) + neg_dice + 1e-8))
+
+    return loss / N
+
+
+def update_pseudo_labels(ema_pred, depth_pred, gamma=0.85):
+    """伪标签跨模态更新：用深度流预测更新RGB流的伪标签"""
+    d_k = torch.where(ema_pred > 0.5, 1 - ema_pred, ema_pred)
+    d_k_prime = torch.where(depth_pred > 0.5, 1 - depth_pred, depth_pred)
+
+    updated_labels = torch.clone(ema_pred)
+    condition1 = (depth_pred > gamma) & (d_k_prime < d_k)
+    condition2 = (depth_pred < 1 - gamma) & (d_k_prime < d_k)
+
+    updated_labels[condition1] = depth_pred[condition1]
+    updated_labels[condition2] = depth_pred[condition2]
+
+    return updated_labels
+
+
+def feature_l2_loss(feat_rgb, feat_depth, mask=None):
+    """特征L2一致性损失"""
+    loss = (feat_rgb - feat_depth).pow(2)
+    if mask is not None:
+        loss = loss * mask
+    return loss.mean()
+
+
+def mse_consistency_loss(pred_1, pred_2):
+    """MSE一致性损失"""
+    return torch.mean((pred_1 - pred_2) ** 2)
