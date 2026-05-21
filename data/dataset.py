@@ -35,6 +35,14 @@ def _strip_known_image_extension(case):
     return str(case)
 
 
+def _normalize_label_array(label):
+    label = label.astype(np.uint8)
+    unique_values = np.unique(label)
+    if unique_values.size <= 2 and np.all(np.isin(unique_values, [0, 255])):
+        return (label > 0).astype(np.uint8)
+    return label
+
+
 def _load_sample_list(base_dir, split, fold=None, use_val=False):
     fold_suffix = f"_f{fold}" if fold is not None else ""
     split_map = {
@@ -129,11 +137,12 @@ def _load_and_resize_sample(
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     lab = cv2.imread(lab_path, cv2.IMREAD_GRAYSCALE).astype(np.uint8)
+    original_label = _normalize_label_array(lab.copy())
     original_shape = np.array(lab.shape[:2], dtype=np.int64)
     img = _resize_numpy_array(img, (target_h, target_w))
     if split != "test":
         lab = _resize_numpy_array(lab, (target_h, target_w))
-    sample = {"image": img, "label": lab, "label_path": lab_path, "original_shape": original_shape}
+    sample = {"image": img, "label": lab, "label_path": lab_path, "original_label": original_label, "original_shape": original_shape}
     if depth_channels is None:
         return idx, sample
 
@@ -295,6 +304,8 @@ class BaseDataSets(Dataset):
 
     def _to_train_or_val_item(self, sample, idx):
         image, depth3, depth1 = self._normalize_inputs(sample["image"], depth3=sample.get("depth3"), depth1=sample.get("depth1"))
+        original_label = sample["original_label"]
+        original_shape = sample["original_shape"]
         sample["image"] = image
         if depth3 is not None:
             sample["depth3"] = depth3
@@ -304,6 +315,8 @@ class BaseDataSets(Dataset):
             sample = self.transform(sample)
         else:
             sample = _build_tensor_sample(sample["image"], sample["label"], depth3, depth1)
+        sample["original_label"] = original_label
+        sample["original_shape"] = original_shape
         sample["idx"] = idx
         return sample
 
@@ -316,6 +329,7 @@ class BaseDataSets(Dataset):
         if original_shape is None:
             original_shape = np.array(sample["label"].shape[:2], dtype=np.int64)
         tensor_sample["case"] = self.sample_list[idx]
+        tensor_sample["original_label"] = sample["original_label"]
         tensor_sample["original_shape"] = np.array(original_shape)
         tensor_sample["original_image"] = sample["image"].copy()
         return tensor_sample

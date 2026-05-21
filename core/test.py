@@ -189,7 +189,7 @@ def _compute_gradcam_heatmap(args, model, strategy, sample_batch, device, hook_m
 
 
 def _collate_test_batch(batch):
-    images, labels, cases, original_shapes, original_images = [], [], [], [], []
+    images, labels, cases, original_labels, original_shapes, original_images = [], [], [], [], [], []
     depth3_list, depth1_list = [], []
     has_depth3 = False
     has_depth1 = False
@@ -197,6 +197,7 @@ def _collate_test_batch(batch):
         images.append(item['image'])
         labels.append(item['label'])
         cases.append(item['case'])
+        original_labels.append(item.get('original_label'))
         original_shapes.append(item['original_shape'])
         original_images.append(item['original_image'])
         depth3 = item.get('depth3')
@@ -209,6 +210,7 @@ def _collate_test_batch(batch):
         'image': images,
         'label': labels,
         'case': cases,
+        'original_label': original_labels,
         'original_shape': original_shapes,
         'original_image': original_images,
     }
@@ -320,6 +322,7 @@ def inference(
         if batch_idx == 0:
             logger.info('First batch received, processing %s samples...', len(batch['case']))
         labels = batch['label']
+        original_labels = batch.get('original_label', labels)
         cases = batch['case']
         original_images = batch.get('original_image', [None] * len(cases))
         for index, case in enumerate(cases):
@@ -332,7 +335,7 @@ def inference(
                 if depth_value is not None:
                     sample_batch[depth_key] = depth_value.unsqueeze(0)
             sample_batch["label"] = labels[index]
-            label_value = labels[index]
+            label_value = original_labels[index] if original_labels[index] is not None else labels[index]
             label_np = label_value.cpu().numpy() if torch.is_tensor(label_value) else np.asarray(label_value)
             outputs = _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
             pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze().cpu().numpy()

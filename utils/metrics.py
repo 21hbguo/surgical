@@ -28,6 +28,58 @@ def compute_dice_per_class(pred, target, num_classes):
     return dice_scores
 
 
+def resize_mask_to_shape(mask, target_shape):
+    mask = np.asarray(mask)
+    target_h, target_w = tuple(int(v) for v in target_shape[:2])
+    if mask.shape == (target_h, target_w):
+        return mask
+    import cv2
+    return cv2.resize(mask.astype(np.uint8), (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+
+
+def calculate_segmentation_case_metrics(pred, gt, num_classes):
+    pred = np.asarray(pred).astype(np.uint8)
+    gt = np.asarray(gt).astype(np.uint8)
+    if pred.shape != gt.shape:
+        pred = resize_mask_to_shape(pred, gt.shape)
+    records = []
+    for cls in range(1, num_classes):
+        pred_cls = pred == cls
+        gt_cls = gt == cls
+        if pred_cls.sum() == 0 and gt_cls.sum() == 0:
+            records.append({
+                "Dice": float("nan"),
+                "IoU": float("nan"),
+                "TP": 0.0,
+                "FP": 0.0,
+                "FN": 0.0,
+                "Acc": float((pred_cls == gt_cls).mean()),
+                "Valid": False,
+                "Class": cls,
+            })
+            continue
+        intersection = np.logical_and(pred_cls, gt_cls).sum()
+        union = np.logical_or(pred_cls, gt_cls).sum()
+        smooth = 1e-6
+        dice = (2.0 * intersection + smooth) / (pred_cls.sum() + gt_cls.sum() + smooth)
+        iou = (intersection + smooth) / (union + smooth)
+        tp = float(intersection)
+        fp = float(np.logical_and(pred_cls, np.logical_not(gt_cls)).sum())
+        fn = float(np.logical_and(np.logical_not(pred_cls), gt_cls).sum())
+        acc = float((pred_cls == gt_cls).mean())
+        records.append({
+            "Dice": dice,
+            "IoU": iou,
+            "TP": tp,
+            "FP": fp,
+            "FN": fn,
+            "Acc": acc,
+            "Valid": True,
+            "Class": cls,
+        })
+    return records
+
+
 def _ensure_depth3(tensor):
     if tensor.shape[1] == 3:
         return tensor

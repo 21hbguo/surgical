@@ -160,7 +160,7 @@ def add_train_args(parser):
     parser.add_argument("--compile", action="store_true", default=True, help="Enable torch.compile for model acceleration")
     parser.add_argument("--debug", action="store_true", default=False)
     parser.add_argument("--no_val", action="store_true", default=False)
-    parser.add_argument("--early_stopping", type=float, default=0.35, help="Early stopping patience as fraction of max_iterations (e.g. 0.2). 0=disabled.")
+    parser.add_argument("--early_stopping", type=float, default=0.3, help="Early stopping patience as fraction of max_iterations (e.g. 0.2). 0=disabled.")
     parser.add_argument("--pth", type=str, default=None, choices=["best", "final", "latest"], help=argparse.SUPPRESS)
 
 

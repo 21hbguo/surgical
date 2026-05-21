@@ -20,7 +20,7 @@ from data import BaseDataSets, OneStreamBatchSampler, RandomGenerator, TwoStream
 from models.factory import create_model
 from strategies import create_strategy
 from utils.lr_scheduler import build_lr_scheduler
-from utils.metrics import compute_dice_per_class, compute_depth_psnr_ssim
+from utils.metrics import calculate_segmentation_case_metrics, compute_depth_psnr_ssim
 from utils.common import patients_to_slices, setup_seed
 from utils.save_vars_to_csv import save_vars_to_csv
 
@@ -382,12 +382,15 @@ class Trainer:
                         if depth_target is None:
                             raise KeyError("Validation for fully_depth_pretrain_v1 requires depth3 or depth1 in batch_data")
                         metrics = compute_depth_psnr_ssim(val_output, depth_target)
+                        metric_list.append(metrics)
                     else:
                         label = batch_data["label"]
-                        dice_scores = compute_dice_per_class(val_output, label, self.args.num_classes)
-                        metrics = {"dice": float(np.mean(dice_scores)) if len(dice_scores) > 0 else 0.0}
-
-                    metric_list.append(metrics)
+                        if torch.is_tensor(label):
+                            label = label.squeeze(0).cpu().numpy() if label.ndim == 3 else label.cpu().numpy()
+                        else:
+                            label = np.asarray(label)
+                        pred = torch.argmax(torch.softmax(val_output, dim=1), dim=1).squeeze(0).cpu().numpy()
+                        metric_list.extend(calculate_segmentation_case_metrics(pred, label, self.args.num_classes))
                     del output, val_output, batch_data
         finally:
             self._set_train_mode()
@@ -401,7 +404,7 @@ class Trainer:
             metric_name = "PSNR"
             log_extra = f", SSIM={mean_ssim:.4f}"
         else:
-            dice_values = [m["dice"] for m in metric_list]
+            dice_values = [m["Dice"] for m in metric_list if m.get("Valid", True)]
             current_metric = float(np.mean(dice_values)) if dice_values else 0.0
             metric_name = "Dice"
             log_extra = ""
