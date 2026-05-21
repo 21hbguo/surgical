@@ -1,24 +1,29 @@
 """
 semi_rdnet:
-基于 RDNet 训练思路的双分支半监督策略。
+基于 CVPR 2025 RDNet 论文的完整双分支半监督策略。
 
-实现要点：
-1. RGB 分支：学生模型 + EMA 教师。
-2. Depth 分支：与学生同构的独立模型（可训练）。
-3. 监督损失：RGB 与 Depth 分支都使用 fully 策略一致的 CE+Dice。
-4. 无监督损失：
-   - RGB 分支对 EMA 伪标签的一致性（高置信区域）。
-   - Depth 分支对 EMA 伪标签的一致性（高置信区域）。
-   - RGB / Depth 两分支之间一致性（高置信区域）。
-   - DPA：基于深度引导的混合一致性。
+核心创新点：
+1. 双流架构：RGB流 + Depth流，各自独立模型 + EMA教师
+2. DPA (Depth-guided Patch Augmentation)：基于深度方差的自适应困难样本挖掘
+3. 伪标签跨模态更新：用深度流高置信预测更新RGB流伪标签
+4. 对比学习：Dice系数作为相似度的InfoNCE风格损失
+5. 特征一致性：MSE + L2损失约束双流特征对齐
 """
 
 import inspect
+import random
 
 import torch
 import torch.nn.functional as F
 
 from .base_strategy import BaseTrainingStrategy
+from utils.losses import (
+    rdnet_contrastive_loss,
+    update_pseudo_labels,
+    feature_l2_loss,
+    mse_consistency_loss,
+    dice_coefficient,
+)
 
 
 class RDNetStrategy(BaseTrainingStrategy):
@@ -29,13 +34,22 @@ class RDNetStrategy(BaseTrainingStrategy):
         self.num_classes = int(args.num_classes)
         self.consistency_start_iters = int(args.consistency_start_iters)
 
-        self.rdnet_thresh = 0.85
-        self.rdnet_thresh_dpa = 0.95
+        # RDNet超参数（与原始论文一致）
+        self.rdnet_thresh = getattr(args, 'rdnet_thresh', 0.85)
+        self.rdnet_thresh_depth = getattr(args, 'rdnet_thresh_depth', 0.85)
+        self.rdnet_thresh_dpa = getattr(args, 'rdnet_thresh_dpa', 0.95)
+        self.rdnet_beta = getattr(args, 'rdnet_beta', 0.3)
+
+        # 损失权重
         self.rdnet_unsup_rgb_weight = 0.5
-        self.rdnet_unsup_depth_weight = 0.5
+        self.rdnet_unsup_depth_weight = 1.2
         self.rdnet_cross_weight = 0.5
         self.rdnet_dpa_weight = 1.0
+        self.rdnet_contrast_weight = 1.0
+        self.rdnet_mse_weight = 0.5
+        self.rdnet_feature_l2_weight = 0.5
 
+        # 创建depth分支模型
         self.depth_model = self._create_branch_model(self.model)
         self.depth_optimizer = torch.optim.Adam(
             self.depth_model.parameters(),
@@ -85,7 +99,6 @@ class RDNetStrategy(BaseTrainingStrategy):
         return x_rep[:, :expected_channels]
 
     def _compute_masked_consistency(self, student_prob, target_prob, confidence):
-        # student_prob/target_prob: [B,C,H,W], confidence: [B,1,H,W] 学生/目标概率: [B,C,H,W], 置信度: [B,1,H,W]
         if student_prob.shape[0] == 0:
             return torch.tensor(0.0, device=self.device)
         diff = (student_prob - target_prob) ** 2
@@ -94,62 +107,94 @@ class RDNetStrategy(BaseTrainingStrategy):
         denom = confidence.sum() + 1e-6
         return masked.sum() / denom
 
-    def _build_depth_guided_mix_mask(self, depth_guidance, target_size):
-        if depth_guidance.shape[1] > 1:
-            depth_map = depth_guidance.mean(dim=1, keepdim=True)
+    def _dpa_augment(self, depth_map, images, pred_u, epoch, total_epochs):
+        """DPA: 基于深度方差的Patch增强"""
+        B, C, H, W = images.shape
+        if B <= 1:
+            return images, pred_u
+
+        # 计算patch大小
+        h_patch = random.choice([10, 20, 40])
+        w_patch = random.choice([10, 20, 40])
+
+        # 计算每个patch的深度方差作为hardness score
+        depth_patches = depth_map.unfold(2, h_patch, h_patch).unfold(3, w_patch, w_patch)
+        patch_variance = depth_patches.var(dim=(-2, -1))
+        hardness_scores = patch_variance.flatten(1)
+
+        num_patches = hardness_scores.shape[1]
+
+        # 计算要保留的hard patch数量（渐进式）
+        if epoch < total_epochs:
+            k = int(self.rdnet_beta * (epoch / total_epochs) * num_patches)
         else:
-            depth_map = depth_guidance
-        if depth_map.shape[2:] != target_size:
-            depth_map = F.interpolate(depth_map, size=target_size, mode="bilinear", align_corners=False)
+            k = int(self.rdnet_beta * num_patches)
+        k = max(1, min(k, num_patches - 1))
 
-        flat = depth_map.flatten(2)
-        median = flat.median(dim=2).values.view(depth_map.shape[0], 1, 1, 1)
-        mix_mask = (depth_map > median).float()
+        _, indices = torch.topk(hardness_scores, k, dim=1, largest=True)
 
-        # 防止全0/全1导致退化
-        mix_ratio = mix_mask.mean(dim=(1, 2, 3), keepdim=True)
-        degenerate = (mix_ratio < 0.05) | (mix_ratio > 0.95)
-        if degenerate.any():
-            rand_mask = (torch.rand_like(mix_mask) > 0.5).float()
-            mix_mask = torch.where(degenerate, rand_mask, mix_mask)
-        return mix_mask
+        augmented_imgs = images.clone()
+        augmented_labels = pred_u.clone()
 
-    def _dpa_mix(self, unlabeled_img, ema_prob, depth_guidance):
-        bsz = unlabeled_img.shape[0]
-        if bsz <= 1:
-            return unlabeled_img, ema_prob
+        grid_h = H // h_patch
+        grid_w = W // w_patch
 
-        perm = torch.randperm(bsz, device=unlabeled_img.device)
-        mix_mask = self._build_depth_guided_mix_mask(depth_guidance, unlabeled_img.shape[2:])
+        for i in range(B):
+            mask = torch.zeros(num_patches, dtype=torch.float32, device=images.device)
+            mask[indices[i]] = 1.0
+            available = [j for j in range(num_patches) if mask[j] == 0]
 
-        mixed_img = unlabeled_img * (1.0 - mix_mask) + unlabeled_img[perm] * mix_mask
-        mixed_teacher = ema_prob * (1.0 - mix_mask) + ema_prob[perm] * mix_mask
-        return mixed_img, mixed_teacher
+            if available:
+                chosen_patch = random.choice(available)
+                ph = chosen_patch // grid_w
+                pw = chosen_patch % grid_w
+                y_start, y_end = ph * h_patch, (ph + 1) * h_patch
+                x_start, x_end = pw * w_patch, (pw + 1) * w_patch
+
+                next_idx = (i + 1) % B
+                augmented_imgs[i, :, y_start:y_end, x_start:x_end] = images[next_idx, :, y_start:y_end, x_start:x_end]
+                augmented_labels[i, :, y_start:y_end, x_start:x_end] = pred_u[next_idx, :, y_start:y_end, x_start:x_end]
+
+        return augmented_imgs, augmented_labels
 
     def compute_loss(self, batch_data, iter_num=0, epoch=0):
         image = batch_data["image"].to(self.device)
         label = batch_data["label"].to(self.device)
-        depth3 = self._get_depth_tensor(batch_data)
-        depth1 = batch_data.get("depth1")
 
-        labeled_label = label[: self.labeled_bs]
-        unlabeled_image = image[self.labeled_bs :]
-        unlabeled_depth3 = depth3[self.labeled_bs :]
-        unlabeled_depth1 = depth1[self.labeled_bs :]
+        # RDNet需要depth3（3通道，depth分支输入）和depth1（1通道，DPA用）
+        depth3 = batch_data.get("depth3")
+        if depth3 is not None:
+            depth3 = depth3.to(self.device)
+        else:
+            depth3 = self._get_depth_tensor(batch_data)  # fallback
+
+        depth1 = batch_data.get("depth1")
+        if depth1 is not None:
+            depth1 = depth1.to(self.device)
+
+        labeled_bs = self.labeled_bs
+        labeled_label = label[:labeled_bs]
+        unlabeled_image = image[labeled_bs:]
+        unlabeled_depth3 = depth3[labeled_bs:] if depth3 is not None else None
+        unlabeled_depth1 = depth1[labeled_bs:] if depth1 is not None else None
 
         expected_channels = int(getattr(self.model, "params", {}).get("in_chns", image.shape[1]))
+
+        # 准备输入
         rgb_input = self._match_expected_channels(image, expected_channels)
-        depth_input = self._match_expected_channels(depth3, expected_channels)
+        depth_input = self._match_expected_channels(depth3, expected_channels) if depth3 is not None else rgb_input
 
         rgb_input = self._add_noise(rgb_input, strong_flag="s", unlabeled_only=True)
         depth_input = self._add_noise(depth_input, strong_flag="s", unlabeled_only=True)
 
+        # 前向传播
         rgb_logits = self._extract_logits(self.model(rgb_input))
         depth_logits = self._extract_logits(self.depth_model(depth_input))
 
         rgb_prob = torch.softmax(rgb_logits, dim=1)
         depth_prob = torch.softmax(depth_logits, dim=1)
 
+        # EMA教师预测
         with torch.no_grad():
             unlabeled_teacher_input = self._match_expected_channels(
                 self._add_noise(unlabeled_image, strong_flag="t"), expected_channels
@@ -159,50 +204,79 @@ class RDNetStrategy(BaseTrainingStrategy):
             ema_conf = torch.max(ema_prob, dim=1, keepdim=True)[0]
             conf_mask = (ema_conf >= self.rdnet_thresh).float()
 
-        # 监督损失（与fully相同）: 0.5 * (CE + Dice)
-        loss_ce_rgb = self.ce_loss(rgb_logits[: self.labeled_bs], labeled_label.long())
-        loss_dice_rgb = self.dice_loss(rgb_prob[: self.labeled_bs], labeled_label.unsqueeze(1))
+        # ====== 1. 监督损失 ======
+        loss_ce_rgb = self.ce_loss(rgb_logits[:labeled_bs], labeled_label.long())
+        loss_dice_rgb = self.dice_loss(rgb_prob[:labeled_bs], labeled_label.unsqueeze(1))
         sup_rgb = 0.5 * (loss_ce_rgb + loss_dice_rgb)
 
-        loss_ce_depth = self.ce_loss(depth_logits[: self.labeled_bs], labeled_label.long())
-        loss_dice_depth = self.dice_loss(depth_prob[: self.labeled_bs], labeled_label.unsqueeze(1))
+        loss_ce_depth = self.ce_loss(depth_logits[:labeled_bs], labeled_label.long())
+        loss_dice_depth = self.dice_loss(depth_prob[:labeled_bs], labeled_label.unsqueeze(1))
         sup_depth = 0.5 * (loss_ce_depth + loss_dice_depth)
 
         consistency_weight = self._get_consistency_weight(iter_num)
-        if iter_num >= self.consistency_start_iters and unlabeled_image.shape[0] > 0:
-            rgb_u = rgb_prob[self.labeled_bs :]
-            depth_u = depth_prob[self.labeled_bs :]
 
+        if iter_num >= self.consistency_start_iters and unlabeled_image.shape[0] > 0:
+            rgb_u = rgb_prob[labeled_bs:]
+            depth_u = depth_prob[labeled_bs:]
+            rgb_l = rgb_prob[:labeled_bs]
+            depth_l = depth_prob[:labeled_bs]
+
+            # ====== 2. 无监督一致性损失 ======
             unsup_rgb = self._compute_masked_consistency(rgb_u, ema_prob, conf_mask)
             unsup_depth = self._compute_masked_consistency(depth_u, ema_prob, conf_mask)
-            cross_cons = self._compute_masked_consistency(rgb_u, depth_u.detach(), conf_mask)
 
-            # DPA: 基于depth3引导的混合一致性
-            dpa_input, dpa_teacher = self._dpa_mix(unlabeled_image, ema_prob, unlabeled_depth1)
-            dpa_input = self._match_expected_channels(dpa_input, expected_channels)
-            dpa_input = self._add_noise(dpa_input, strong_flag="s", unlabeled_only=False)
-            dpa_logits = self._extract_logits(self.model(dpa_input))
-            dpa_prob = torch.softmax(dpa_logits, dim=1)
-            dpa_conf = torch.max(dpa_teacher, dim=1, keepdim=True)[0]
-            dpa_mask = (dpa_conf >= self.rdnet_thresh_dpa).float()
-            dpa_cons = self._compute_masked_consistency(dpa_prob, dpa_teacher, dpa_mask)
+            # ====== 3. 跨模态一致性 ======
+            # 伪标签跨模态更新
+            updated_pseudo = update_pseudo_labels(ema_prob, depth_u, gamma=self.rdnet_thresh_depth)
+            depth_conf = torch.max(depth_u, dim=1, keepdim=True)[0]
+            depth_conf_mask = (depth_conf >= self.rdnet_thresh_depth).float()
+            cross_cons = self._compute_masked_consistency(rgb_u, updated_pseudo.detach(), depth_conf_mask)
+
+            # ====== 4. DPA增强一致性 ======
+            if unlabeled_depth1 is not None:
+                dpa_input, dpa_teacher = self._dpa_augment(
+                    unlabeled_depth1, unlabeled_image, ema_prob, epoch, max(1, self.args.max_epoch)
+                )
+                dpa_input = self._match_expected_channels(dpa_input, expected_channels)
+                dpa_input = self._add_noise(dpa_input, strong_flag="s", unlabeled_only=False)
+                dpa_logits = self._extract_logits(self.model(dpa_input))
+                dpa_prob = torch.softmax(dpa_logits, dim=1)
+                dpa_conf = torch.max(dpa_teacher, dim=1, keepdim=True)[0]
+                dpa_mask = (dpa_conf >= self.rdnet_thresh_dpa).float()
+                dpa_cons = self._compute_masked_consistency(dpa_prob, dpa_teacher, dpa_mask)
+            else:
+                dpa_cons = torch.tensor(0.0, device=self.device)
+
+            # ====== 5. 对比学习损失 ======
+            loss_contrast = rdnet_contrastive_loss(rgb_l, rgb_u, depth_l, depth_u)
+
+            # ====== 6. MSE一致性损失 ======
+            loss_mse = mse_consistency_loss(rgb_u, depth_u.detach())
+
+            # ====== 7. 特征L2损失（使用输出logits近似） ======
+            loss_feat_l2 = feature_l2_loss(
+                rgb_logits[labeled_bs:], depth_logits[labeled_bs:].detach()
+            )
         else:
             unsup_rgb = torch.tensor(0.0, device=self.device)
             unsup_depth = torch.tensor(0.0, device=self.device)
             cross_cons = torch.tensor(0.0, device=self.device)
             dpa_cons = torch.tensor(0.0, device=self.device)
+            loss_contrast = torch.tensor(0.0, device=self.device)
+            loss_mse = torch.tensor(0.0, device=self.device)
+            loss_feat_l2 = torch.tensor(0.0, device=self.device)
 
-        total_loss = (
-            sup_rgb
-            + sup_depth
-            + consistency_weight
-            * (
-                self.rdnet_unsup_rgb_weight * unsup_rgb
-                + self.rdnet_unsup_depth_weight * unsup_depth
-                + self.rdnet_cross_weight * cross_cons
-                + self.rdnet_dpa_weight * dpa_cons
-            )
-        )
+        # ====== 总损失 ======
+        # RGB分支损失
+        loss_rgb = (sup_rgb + self.rdnet_unsup_rgb_weight * unsup_rgb + dpa_cons + self.rdnet_thresh_depth * cross_cons) / 3.0
+        # Depth分支损失
+        loss_depth = (sup_depth + self.rdnet_unsup_depth_weight * unsup_depth) / 2.0
+        # 跨模态损失
+        loss_con = (self.rdnet_contrast_weight * loss_contrast +
+                    self.rdnet_mse_weight * loss_mse +
+                    self.rdnet_feature_l2_weight * loss_feat_l2) / 2.0
+
+        total_loss = (loss_rgb + loss_depth + loss_con) / 3.0
 
         return {
             "total": total_loss,
@@ -216,6 +290,9 @@ class RDNetStrategy(BaseTrainingStrategy):
             "unsup_depth": unsup_depth,
             "cross_cons": cross_cons,
             "dpa_cons": dpa_cons,
+            "contrast": loss_contrast,
+            "mse": loss_mse,
+            "feat_l2": loss_feat_l2,
             "consistency_weight": consistency_weight,
         }
 
@@ -272,3 +349,10 @@ class RDNetStrategy(BaseTrainingStrategy):
                 self.depth_model.load_state_dict(state_dict["depth_model"])
             return
         self.model.load_state_dict(state_dict)
+
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument('--rdnet_thresh', type=float, default=0.85, help='RGB伪标签置信阈值')
+        parser.add_argument('--rdnet_thresh_depth', type=float, default=0.85, help='Depth伪标签置信阈值')
+        parser.add_argument('--rdnet_thresh_dpa', type=float, default=0.95, help='DPA增强置信阈值')
+        parser.add_argument('--rdnet_beta', type=float, default=0.3, help='DPA patch保留比例')
