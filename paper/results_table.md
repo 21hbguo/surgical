@@ -51,13 +51,15 @@
 | GeoRisk-SPC+DGv4 | 20% | 0 | 0.8904 | 92.15 | 85.96 | 91.04 | 93.92 |
 | GeoRisk-SPC | 40% | ALL | 89.10±4.45 | **91.15±8.91** | 84.76±12.62 | 91.50±12.00 | 91.85±7.00 |
 | GeoRisk-SPC | 10% | ALL | 86.88±4.88 | **88.59±13.27** | 81.55±17.21 | 88.85±16.29 | 90.08±10.77 |
+| GeoRisk-SPC | 5% | ALL | 85.43±5.45 | **86.68±15.81** | 79.07±18.86 | 87.17±18.12 | 88.35±14.24 |
+| GeoRisk-SPC | 5% | ALL | 85.43±5.45 | **86.68±15.81** | 79.07±18.86 | 87.17±18.12 | 88.35±14.24 |
 
 ## 待补充实验
 
 ### 全 fold 实验 (fold -1)
 - [x] GeoRisk-SPC 40% labeled (完成: 91.15±8.91)
 - [x] GeoRisk-SPC 10% labeled (完成: 88.59±13.27)
-- [ ] GeoRisk-SPC 5% labeled (训练中...)
+- [x] GeoRisk-SPC 5% labeled (完成: 86.68±15.81)
 - [ ] GeoRisk-SPC+DGv4 40% labeled
 - [ ] GeoRisk-SPC+DGv4 10% labeled
 - [ ] GeoRisk-SPC+DGv4 5% labeled
