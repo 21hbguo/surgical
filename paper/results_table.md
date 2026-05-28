@@ -60,7 +60,7 @@
 - [x] GeoRisk-SPC 40% labeled (完成: 91.15±8.91)
 - [x] GeoRisk-SPC 10% labeled (完成: 88.59±13.27)
 - [x] GeoRisk-SPC 5% labeled (完成: 86.68±15.81)
-- [ ] GeoRisk-SPC+DGv4 40% labeled
+- [x] GeoRisk-SPC+DGv4 40% labeled (完成: 91.41±10.29)
 - [ ] GeoRisk-SPC+DGv4 10% labeled
 - [ ] GeoRisk-SPC+DGv4 5% labeled
 
