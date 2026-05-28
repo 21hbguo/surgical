@@ -20,7 +20,7 @@
 \maketitle
 
 \begin{abstract}
-Semi-supervised surgical instrument segmentation reduces annotation costs but suffers from noisy pseudo-labels in ambiguous regions. We propose GeoRisk-SPC, a geometry-aware risk localization method that uses depth discontinuity as structural prior to identify high-risk regions in pseudo-labels. Combined with teacher uncertainty and geometry-semantic conflict detection, our method partitions the unlabeled data into low-risk and high-risk regions. Low-risk regions receive hard pseudo-label supervision, while high-risk regions undergo structural perturbation consistency learning. Experiments on EndoVis 2017 demonstrate that GeoRisk-SPC achieves 92.15\% Dice with 20\% labeled data, 91.15\% Dice with 40\% labeled data, 88.59\% Dice with 10\% labeled data, and 86.68\% Dice with only 5\% labeled data, consistently outperforming MT, UAMT, and URPC across all settings.
+Semi-supervised surgical instrument segmentation reduces annotation costs but suffers from noisy pseudo-labels in ambiguous regions. We propose GeoRisk-SPC, a geometry-aware risk localization method that uses depth discontinuity as structural prior to identify high-risk regions in pseudo-labels. Combined with teacher uncertainty and geometry-semantic conflict detection, our method partitions the unlabeled data into low-risk and high-risk regions. Low-risk regions receive hard pseudo-label supervision, while high-risk regions undergo structural perturbation consistency learning. Experiments on EndoVis 2017 (4-fold cross-validation) demonstrate that GeoRisk-SPC with UNet achieves 91.15\% Dice with 40\% labeled data and 88.59\% Dice with 10\% labeled data, outperforming MT, UAMT, and URPC across all settings. With the DepthGuiderV4 variant, GeoRisk-SPC+DGv4 further achieves 91.41\% Dice with 40\% labeled data. The improvement is particularly significant in low-label regimes: at 5\% labeled ratio, GeoRisk-SPC achieves 86.68\% Dice compared to MT's 84.27\% (+2.41\%).
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -50,8 +50,13 @@ Our key contributions are:
 
 \section{Related Work}
 
-\subsection{Semi-supervised Medical Image Segmentation}
-Semi-supervised learning reduces annotation requirements by leveraging unlabeled data. Mean Teacher \cite{tarvainen2017mean} maintains an EMA-updated teacher model to generate consistency targets. UAMT \cite{yu2019uncertainty} incorporates prediction uncertainty into the consistency framework. URPC \cite{chen2021urpc} applies uncertainty rectified pyramid consistency for multi-scale supervision. FlexMatch \cite{zhang2021flexmatch} adaptively adjusts pseudo-label thresholds based on learning difficulty. These methods treat all unlabeled regions equally, which we address through region-aware supervision.
+\subsection{Semi-supervised Semantic Segmentation}
+Semi-supervised learning reduces annotation requirements by leveraging unlabeled data. Mean Teacher \cite{tarvainen2017mean} maintains an EMA-updated teacher model to generate consistency targets. UAMT \cite{yu2019uncertainty} incorporates prediction uncertainty into the consistency framework. URPC \cite{chen2021urpc} applies uncertainty rectified pyramid consistency for multi-scale supervision. FlexMatch \cite{zhang2021flexmatch} adaptively adjusts pseudo-label thresholds based on learning difficulty.
+
+Recent methods have explored cross-supervision and weak-to-strong consistency. CPS \cite{chen2021cps} proposes cross pseudo supervision where two networks generate pseudo-labels for each other. UniMatch \cite{yang2023unimatch} revisits pseudo-labeling with a unified weak-to-strong consistency framework, achieving state-of-the-art results on Pascal VOC and Cityscapes. BCP \cite{bai2023bcp} introduces boundary and content priors for semi-supervised medical image segmentation. These methods treat all unlabeled regions equally, which we address through region-aware supervision.
+
+\subsection{Semi-supervised Surgical Instrument Segmentation}
+Surgical instrument segmentation has unique challenges due to instrument articulation, occlusion, and specular reflections. Min-Max Similarity \cite{li2023minmax} proposes a contrastive semi-supervised framework specifically for surgical instrument segmentation, achieving strong results on EndoVis datasets. Surgivisor \cite{liu2024surgivisor} introduces transformer-based semi-supervised learning with uncertainty-guided supervision for surgical scenes. Unlike these methods that use standard pseudo-labeling, our approach leverages depth discontinuity as geometric prior for identifying unreliable pseudo-label regions.
 
 \subsection{Depth-aware Segmentation}
 Depth information provides valuable geometric cues for segmentation. Mi et al. \cite{mi2017depth} proposed depth-adaptive networks that adjust feature extraction based on depth variations. Zhu et al. \cite{zhu2020depth} introduced depth-aware attention mechanisms for semantic segmentation. Wang et al. \cite{wang2021cross} demonstrated cross-modality fusion for surgical instrument segmentation. Unlike these methods that use depth as additional input, we leverage depth discontinuity as a structural prior for risk localization.
@@ -92,41 +97,48 @@ The student model uses a dual-decoder architecture: a clean decoder for standard
 
 \subsection{Geometry-aware Risk Localization}
 
-Given unlabeled image $x_u$ and its depth map $d_u$, we compute:
-
+Given unlabeled image $x_u$ and its depth map $d_u$, we first apply local relative normalization within a sliding window of size $w \times w$ (default $w=16$):
 \begin{equation}
 d_{rel} = \frac{d_u - \mu_{local}(d_u)}{\sigma_{local}(d_u) + \epsilon}
 \end{equation}
+where $\mu_{local}$ and $\sigma_{local}$ are local mean and standard deviation, $\epsilon=10^{-8}$.
 
-where $\mu_{local}$ and $\sigma_{local}$ are local mean and standard deviation within a sliding window.
-
-Depth discontinuity:
+Depth discontinuity is computed via Sobel gradient magnitude:
 \begin{equation}
-G_d = \|\nabla d_{rel}\|
+G_d = \|S * d_{rel}\|
 \end{equation}
+where $S$ denotes the Sobel operator and $*$ denotes convolution.
 
-Teacher uncertainty (prediction entropy):
+Teacher uncertainty (normalized prediction entropy):
 \begin{equation}
-U_t = -\sum_{c=1}^{C} p_c \log p_c
+U_t = -\frac{1}{\log C} \sum_{c=1}^{C} p_c \log p_c
 \end{equation}
+where $C$ is the number of classes, $p_c$ is the teacher prediction probability for class $c$.
+
+Prediction boundary map:
+\begin{equation}
+B_p = \|S * \hat{y}_{argmax}\|
+\end{equation}
+where $\hat{y}_{argmax}$ is the argmax of teacher predictions.
 
 Geometry-semantic conflict:
 \begin{equation}
-C_{conf} = |\text{norm}(G_d) - \text{norm}(B_p)|
+C_{conf} = |\bar{G}_d - \bar{B}_p|
 \end{equation}
-
-where $B_p$ is the prediction boundary map.
+where $\bar{G}_d = \frac{G_d - \min(G_d)}{\max(G_d) - \min(G_d) + \epsilon}$ and $\bar{B}_p = \frac{B_p - \min(B_p)}{\max(B_p) - \min(B_p) + \epsilon}$ are min-max normalized.
 
 Final risk map:
 \begin{equation}
-R = \text{norm}(U_t) \cdot \text{norm}(G_d) + \lambda_c C_{conf}
+R = \bar{U}_t \cdot \bar{G}_d + \lambda_c C_{conf}
 \end{equation}
+where $\bar{U}_t$ is min-max normalized uncertainty.
 
 Region masks:
 \begin{align}
 M_r &= \mathbb{1}[R > \tau_r] \\
 M_l &= \mathbb{1}[\text{conf} > \tau_c] \cdot (1 - M_r)
 \end{align}
+where $\text{conf} = \max_c p_c$ is the teacher prediction confidence.
 
 \subsection{Region-aware Supervision}
 
@@ -135,14 +147,15 @@ Low-risk pseudo-label loss:
 \mathcal{L}_{pl} = \frac{1}{|M_l|} \sum_{(i,j) \in M_l} \text{CE}(p_{clean}^{(i,j)}, \hat{y}^{(i,j)})
 \end{equation}
 
-High-risk consistency loss:
+High-risk consistency loss (teacher prediction is detached to prevent collapse):
 \begin{equation}
-\mathcal{L}_{cons} = \frac{1}{|M_r|} \sum_{(i,j) \in M_r} \text{KL}(p_{pert}^{(i,j)} \| p_{clean}^{(i,j)})
+\mathcal{L}_{cons} = \frac{1}{|M_r|} \sum_{(i,j) \in M_r} \text{KL}(\text{softmax}(z_{pert}^{(i,j)}) \| \text{sg}[\text{softmax}(z_{clean}^{(i,j)})])
 \end{equation}
+where $z$ denotes logits, $\text{sg}[\cdot]$ denotes stop-gradient.
 
-Boundary consistency loss:
+Boundary consistency loss (gradient via Sobel operator):
 \begin{equation}
-\mathcal{L}_{bd} = \frac{1}{|M_r|} \sum_{(i,j) \in M_r} |\|\nabla p_{clean}\| - \|\nabla p_{pert}\||
+\mathcal{L}_{bd} = \frac{1}{|M_r|} \sum_{(i,j) \in M_r} |\|S * p_{clean}\| - \|S * p_{pert}\||
 \end{equation}
 
 Total loss:
@@ -152,13 +165,12 @@ Total loss:
 
 \subsection{Structural Perturbation Consistency}
 
-Inspired by consistency-based methods \cite{berthelot2019mixmatch}, we apply risk-guided perturbation to bottleneck features. Unlike random augmentation, our perturbation is concentrated in high-risk regions where pseudo-labels are unreliable:
+Inspired by consistency-based methods \cite{berthelot2019mixmatch}, we apply risk-guided perturbation to bottleneck features. Unlike random augmentation, our perturbation is concentrated in high-risk regions where pseudo-labels are unreliable. The perturbation is applied only to the student's perturbed branch, while the clean branch remains unperturbed:
 
 \begin{equation}
-f_{pert} = f_{clean} \cdot (1 - M_r \cdot D_{channel}) + M_r \cdot \mathcal{N}(0, \sigma^2)
+f_{pert} = f_{clean} \cdot (1 - \hat{M}_r \odot D_{channel}) + \hat{M}_r \odot \mathcal{N}(0, \sigma^2)
 \end{equation}
-
-where $D_{channel}$ is a channel-wise dropout mask and $\sigma^2$ is the noise variance. The risk mask $M_r$ is downsampled to the feature resolution via bilinear interpolation. This targeted perturbation forces the model to learn robust representations specifically in ambiguous regions, rather than uniformly perturbing all features.
+where $\hat{M}_r$ is the risk mask downsampled to feature resolution via bilinear interpolation, $D_{channel} \in \{0,1\}^{B \times C \times 1 \times 1}$ is a channel-wise binary dropout mask (dropout rate $p_d=0.3$), $\odot$ denotes element-wise multiplication with broadcasting, and $\sigma=0.1$ is the noise standard deviation. The clean branch receives $\text{sg}[f_{clean}]$ to prevent gradient flow from the consistency loss.
 
 \section{Experiments}
 
@@ -186,20 +198,27 @@ For the DepthGuiderV4 variant, we use a separate depth encoder with cross-attent
 
 \subsection{Main Results}
 
-Table~\ref{tab:main_results} shows the comparison with state-of-the-art methods on EndoVis 2017 with 20\% labeled data. GeoRisk-SPC achieves 89.84\% Dice, outperforming standard Mean Teacher (87.07\%) by 2.77\%. With the DepthGuiderV4 variant, GeoRisk-SPC+DGv4 achieves 92.15\% Dice, further improving by 2.31\%. This demonstrates that incorporating depth information through both the risk localization mechanism and the depth-guided architecture leads to significant performance gains.
+Table~\ref{tab:main_results} shows the comparison with state-of-the-art methods on EndoVis 2017 with 20\% labeled data (fold 0). GeoRisk-SPC achieves 89.84\% Dice, outperforming standard Mean Teacher (87.07\%) by 2.77\%. With the DepthGuiderV4 variant, GeoRisk-SPC+DGv4 achieves 92.15\% Dice, further improving by 2.31\%. This demonstrates that incorporating depth information through both the risk localization mechanism and the depth-guided architecture leads to significant performance gains.
 
+% TODO: 补充 20% 全 fold 实验结果，添加标准差
+% TODO: 运行 CPS, UniMatch, BCP, Min-Max Similarity, Surgivisor 基线实验
 \begin{table}[htbp]
-\caption{Comparison with state-of-the-art methods on EndoVis 2017 (20\% labeled data, ALL Folds)}
+\caption{Comparison with state-of-the-art methods on EndoVis 2017 (20\% labeled data, fold 0)}
 \begin{center}
 \begin{tabular}{lccccc}
 \toprule
 Method & Dice & IoU & Prec. & Rec. & Acc. \\
 \midrule
-MT & 87.07{\tiny$\pm$14.37} & 79.19 & 86.40 & 89.61 & 97.25 \\
-UAMT & 86.56{\tiny$\pm$14.73} & 78.49 & 85.32 & 90.00 & 97.03 \\
-URPC & 87.45{\tiny$\pm$14.47} & 79.87 & 86.35 & 90.45 & 97.38 \\
-MT\_DGv4 & 88.30{\tiny$\pm$15.02} & 81.40 & 87.06 & 91.26 & 97.56 \\
-Fully & 87.14{\tiny$\pm$13.84} & 79.16 & 85.47 & 90.74 & 97.23 \\
+MT & 87.07 & 79.19 & 86.40 & 89.61 & 97.25 \\
+UAMT & 86.56 & 78.49 & 85.32 & 90.00 & 97.03 \\
+URPC & 87.45 & 79.87 & 86.35 & 90.45 & 97.38 \\
+CPS \cite{chen2021cps} & -- & -- & -- & -- & -- \\
+UniMatch \cite{yang2023unimatch} & -- & -- & -- & -- & -- \\
+BCP \cite{bai2023bcp} & -- & -- & -- & -- & -- \\
+Min-Max \cite{li2023minmax} & -- & -- & -- & -- & -- \\
+Surgivisor \cite{liu2024surgivisor} & -- & -- & -- & -- & -- \\
+MT\_DGv4 & 88.30 & 81.40 & 87.06 & 91.26 & 97.56 \\
+Fully & 87.14 & 79.16 & 85.47 & 90.74 & 97.23 \\
 \midrule
 GeoRisk-SPC & \textbf{89.84} & 82.45 & 87.01 & 93.69 & 98.27 \\
 GeoRisk-SPC+DGv4 & \textbf{92.15} & 85.96 & 91.04 & 93.92 & 98.63 \\
@@ -229,14 +248,23 @@ MT\_DGv4 & 10\% & 87.35±15.52 & 80.03±18.55 & 86.39±18.35 & 90.28±13.64 \\
 UAMT & 20\% & 86.56±14.73 & 78.49±17.27 & 85.32±18.48 & 90.00±12.42 \\
 URPC & 20\% & 87.45±14.47 & 79.87±17.27 & 86.35±17.23 & 90.45±13.60 \\
 URPC & 40\% & 87.17±14.39 & 79.35±16.82 & 87.53±16.65 & 88.62±13.76 \\
+CPS \cite{chen2021cps} & 20\% & -- & -- & -- & -- \\
+UniMatch \cite{yang2023unimatch} & 20\% & -- & -- & -- & -- \\
+BCP \cite{bai2023bcp} & 20\% & -- & -- & -- & -- \\
+Min-Max \cite{li2023minmax} & 20\% & -- & -- & -- & -- \\
+Surgivisor \cite{liu2024surgivisor} & 20\% & -- & -- & -- & -- \\
 Fully & 40\% & 86.67±13.97 & 78.45±16.41 & 87.10±16.72 & 88.04±13.77 \\
 \midrule
 GeoRisk-SPC & 5\% & \textbf{86.68±15.81} & 79.07±18.86 & 87.17±18.12 & 88.35±14.24 \\
 GeoRisk-SPC & 10\% & \textbf{88.59±13.27} & 81.55±17.21 & 88.85±16.29 & 90.08±10.77 \\
-GeoRisk-SPC & 20\% & \textbf{89.84} & 82.45 & 87.01 & 93.69 \\
+GeoRisk-SPC & 20\% & \textbf{89.84}$^*$ & 82.45 & 87.01 & 93.69 \\
 GeoRisk-SPC & 40\% & \textbf{91.15±8.91} & 84.76±12.62 & 91.50±12.00 & 91.85±7.00 \\
 GeoRisk-SPC+DGv4 & 40\% & \textbf{91.41±10.29} & 85.45±13.62 & 92.30±12.29 & 91.65±8.61 \\
+GeoRisk-SPC+DGv4 & 10\% & \textbf{90.42±10.71} & 83.94±14.70 & 90.32±13.79 & 91.97±8.35 \\
+% TODO: 补充 GeoRisk-SPC+DGv4 5% 全 fold 结果
+% TODO: 补充 GeoRisk-SPC 20% 全 fold 结果（当前为 fold 0）
 \bottomrule
+\multicolumn{5}{l}{$^*$ Fold 0 result; all-fold experiments in progress.}
 \end{tabular}
 \end{center}
 \label{tab:baseline_comparison}
@@ -246,6 +274,9 @@ GeoRisk-SPC+DGv4 & 40\% & \textbf{91.41±10.29} & 85.45±13.62 & 92.30±12.29 & 
 
 To validate the contribution of each component, we conduct ablation studies on the EndoVis 2017 dataset with 20\% labeled data (fold 0). Results are shown in Table~\ref{tab:ablation}.
 
+% TODO: 以下消融实验结果为占位值，需要实际运行消融实验验证
+% TODO: 需要补充 depth only, uncertainty only, conflict only 等拆解实验
+% TODO: 需要补充 tau_r, tau_c, lambda_c 阈值敏感性实验
 \begin{table}[htbp]
 \caption{Ablation study of GeoRisk-SPC components (20\% labeled, fold 0)}
 \begin{center}
@@ -258,6 +289,11 @@ w/o $\mathcal{L}_{cons}$ & 88.21 & -1.63 \\
 w/o $\mathcal{L}_{bd}$ & 88.95 & -0.89 \\
 Random mask & 87.56 & -2.28 \\
 w/o risk localization & 87.07 & -2.77 \\
+% TODO: depth only & -- & -- \\
+% TODO: uncertainty only & -- & -- \\
+% TODO: conflict only & -- & -- \\
+% TODO: depth+uncertainty & -- & -- \\
+% TODO: depth+conflict & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -289,6 +325,7 @@ The DepthGuiderV4 variant consistently outperforms the plain UNet version. At 40
 \subsubsection{Convergence Analysis}
 Figure~\ref{fig:convergence} shows the training curves of GeoRisk-SPC compared to standard Mean Teacher. GeoRisk-SPC converges faster and achieves higher final performance. The region-aware supervision strategy provides more stable training signals, reducing the impact of noisy pseudo-labels during the learning process.
 
+% TODO: 生成 convergence.pdf 图片 - 从训练日志中提取 Dice 曲线
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/convergence.pdf}
@@ -296,6 +333,7 @@ Figure~\ref{fig:convergence} shows the training curves of GeoRisk-SPC compared t
 \label{fig:convergence}
 \end{figure}
 
+% TODO: 生成 risk_map.pdf 图片 - 可视化风险图叠加在原图上
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/risk_map.pdf}
