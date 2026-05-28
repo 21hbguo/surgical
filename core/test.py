@@ -24,6 +24,7 @@ from core.testing import (
     colorize_test_mask,
     persist_result_tables,
     prepare_visual_output_dirs,
+    save_confidence_visualization,
     save_multiclass_gradcam_visualization,
     save_test_rgb_visualization,
 )
@@ -55,6 +56,8 @@ def build_test_feature_parser():
     parser.add_argument("--feat_vis_target_class", type=int, default=-1, help="gradcam target class; -1 uses auto non-background class")
     parser.add_argument("--feat_vis_max_cases", type=int, default=10, help="max cases to export per fold")
     parser.add_argument("--feat_vis_alpha", type=float, default=0.45, help="overlay alpha for feature visualization")
+    parser.add_argument("--conf_vis", type=int, default=0, choices=[0, 1], help="enable per-class confidence heatmap visualization")
+    parser.add_argument("--conf_vis_alpha", type=float, default=0.45, help="overlay alpha for confidence visualization")
     return parser
 
 
@@ -295,6 +298,7 @@ def inference(
     rescale=True,
     strategy=None,
     feat_output_dir=None,
+    conf_output_dir=None,
 ):
     logger = logging.getLogger(__name__)
     if strategy is None:
@@ -383,6 +387,17 @@ def inference(
                         alpha=float(args.feat_vis_alpha),
                     )
                     saved_feat_cases += 1
+
+            if args.conf_vis and conf_output_dir is not None and original_images[index] is not None:
+                logits_np = outputs[0].detach().cpu().numpy()
+                save_confidence_visualization(
+                    image=original_images[index],
+                    logits=logits_np,
+                    output_dir=conf_output_dir,
+                    case_name=case,
+                    num_classes=args.num_classes,
+                    alpha=float(args.conf_vis_alpha),
+                )
 
             pred_for_metrics = _resize_mask_to_shape(pred, label_np.shape)
             seq = None
@@ -566,7 +581,7 @@ def run_one_fold(args, fold, fold_map, context):
     logger.info('DataLoader: batch_size=%s, num_workers=%s, pin_memory=True', args.batch_size, TEST_NUM_WORKERS)
     logger.info('Dataset: is_depth=%s, depth_channels=%s', is_depth, depth_channels)
 
-    rgb_output_dir, feat_output_dir = prepare_visual_output_dirs(args, fold, logger)
+    rgb_output_dir, feat_output_dir, conf_output_dir = prepare_visual_output_dirs(args, fold, logger)
 
     records = inference(
         args,
@@ -577,6 +592,7 @@ def run_one_fold(args, fold, fold_map, context):
         rgb_output_dir=rgb_output_dir,
         strategy=strategy,
         feat_output_dir=feat_output_dir,
+        conf_output_dir=conf_output_dir,
     )
     summary = summarize_records(records, num_classes=args.num_classes)
     if summary:

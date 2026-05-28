@@ -36,6 +36,36 @@ class FeaturePerturbation(nn.Module):
         x_normed = (x - mu) / sig
         return gamma * x_normed + beta
 
+class RiskGuidedPerturbation(nn.Module):
+    """Risk-guided feature perturbation: masked channel dropout + masked Gaussian noise."""
+
+    def __init__(self, dropout_rate=0.3, noise_std=0.1):
+        super().__init__()
+        self.dropout_rate = dropout_rate
+        self.noise_std = noise_std
+
+    def forward(self, features, risk_mask):
+        """
+        Args:
+            features: [B, C, H, W] bottleneck features
+            risk_mask: [B, 1, H_r, W_r] risk map (values in [0,1])
+        Returns:
+            perturbed features [B, C, H, W]
+        """
+        if risk_mask.shape[2:] != features.shape[2:]:
+            risk_mask = F.interpolate(risk_mask, size=features.shape[2:],
+                                      mode='bilinear', align_corners=False)
+        # Masked channel dropout
+        channel_drop = (torch.rand(features.size(0), features.size(1), 1, 1,
+                                   device=features.device) > self.dropout_rate).float()
+        drop_mask = 1.0 - risk_mask * (1.0 - channel_drop)
+        features = features * drop_mask
+        # Masked Gaussian noise
+        noise = torch.randn_like(features) * self.noise_std
+        features = features + risk_mask * noise
+        return features
+
+
 class DepthGuider(nn.Module):
     def __init__(self, in_channels, depth_channels=1, attn_size=8):
         super().__init__()

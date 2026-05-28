@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .block.common_block import DepthGuider, FeaturePerturbation
+from .block.common_block import DepthGuider, FeaturePerturbation, RiskGuidedPerturbation
 from .block.unet_block import ConvBlock, DownBlock, Encoder, Decoder, Decoder_URPC, UpBlock, build_group_norm, replace_batchnorm2d_with_groupnorm
 
 class DepthGuiderV3(nn.Module):
@@ -476,6 +476,87 @@ class UNet_DepthGuiderV3(nn.Module):
         feature = self.encoder(rgb)
         feature = [g(f, depth) for g, f in zip(self.depth_guiders, feature)]
         return self.decoder(feature)
+
+
+class UNet_GeoRiskSPC(nn.Module):
+    """Plain UNet with dual decoder for risk-guided perturbation consistency.
+
+    Accepts in_chns input channels (may include depth), but encoder processes
+    only the first 3 channels (RGB). Depth is used externally for risk maps.
+    """
+
+    def __init__(self, in_chns, class_num, filter_num=16,
+                 dropout_rate=0.3, noise_std=0.1):
+        super().__init__()
+        self.in_chns = in_chns
+        params = {
+            'in_chns': in_chns,
+            'dropout': [0, 0, 0, 0, 0],
+            'class_num': class_num,
+            'bilinear': False,
+            'acti_func': 'relu',
+            'filter_num': filter_num
+        }
+        self.params = params
+        self.encoder = Encoder(params, filter_num)
+        self.decoder = Decoder(params, filter_num)
+        self.decoder_pert = Decoder(params, filter_num)
+        self.perturbation = RiskGuidedPerturbation(dropout_rate, noise_std)
+
+    def forward(self, x, risk_mask=None):
+        feature = self.encoder(x)
+        p_clean = self.decoder(feature)
+        if risk_mask is not None:
+            feat_pert = self.perturbation(feature[4], risk_mask)
+            feature_pert = list(feature)
+            feature_pert[4] = feat_pert
+            p_pert = self.decoder_pert(feature_pert)
+            return p_clean, p_pert
+        return p_clean
+
+
+class UNet_DepthGuiderV4_GeoRiskSPC(nn.Module):
+    """DepthGuiderV4 UNet with dual decoder for risk-guided perturbation consistency.
+
+    Accepts in_chns input (may include depth). Encoder processes RGB only (3ch),
+    depth is passed to DepthGuiderV4 modules at each encoder level.
+    """
+
+    def __init__(self, in_chns, class_num, filter_num=16,
+                 dropout_rate=0.3, noise_std=0.1):
+        super().__init__()
+        self.in_chns = in_chns
+        # Encoder always uses 3ch RGB; depth handled by DepthGuiderV4 modules
+        rgb_params = {
+            'in_chns': 3,
+            'dropout': [0, 0, 0, 0, 0],
+            'class_num': class_num,
+            'bilinear': False,
+            'acti_func': 'relu',
+            'filter_num': filter_num
+        }
+        self.params = rgb_params
+        self.encoder = DepthGuidedEncoderV4(rgb_params, filter_num)
+        self.decoder = Decoder(rgb_params, filter_num)
+        self.decoder_pert = Decoder(rgb_params, filter_num)
+        self.perturbation = RiskGuidedPerturbation(dropout_rate, noise_std)
+
+    def _split_rgb_depth(self, x):
+        rgb = x[:, :3, :, :]
+        depth = x[:, 3:4, :, :] if x.shape[1] >= 4 else rgb[:, :1, :, :]
+        return rgb, depth
+
+    def forward(self, x, risk_mask=None):
+        rgb, depth = self._split_rgb_depth(x)
+        feature = self.encoder(rgb, depth)
+        p_clean = self.decoder(feature)
+        if risk_mask is not None:
+            feat_pert = self.perturbation(feature[4], risk_mask)
+            feature_pert = list(feature)
+            feature_pert[4] = feat_pert
+            p_pert = self.decoder_pert(feature_pert)
+            return p_clean, p_pert
+        return p_clean
 
 
 class ProjectionHeadContrastV1(nn.Module):

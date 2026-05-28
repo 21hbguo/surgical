@@ -123,12 +123,40 @@ def _build_overlay(image: np.ndarray, mask: np.ndarray, num_classes: int, alpha:
 
 
 def save_test_rgb_visualization(image, label, pred, output_dir, case_name, mode, num_classes, alpha: float = 0.45):
-    pred_overlay = _build_overlay(image, pred, num_classes, alpha=alpha)
-    if mode == 2:
-        label_overlay = _build_overlay(image, label, num_classes, alpha=alpha)
-        result = np.concatenate([label_overlay, pred_overlay], axis=1)
+    if mode == 3:
+        result = _build_overlay(image, label, num_classes, alpha=alpha)
     else:
-        result = pred_overlay
+        pred_overlay = _build_overlay(image, pred, num_classes, alpha=alpha)
+        if mode == 2:
+            label_overlay = _build_overlay(image, label, num_classes, alpha=alpha)
+            result = np.concatenate([label_overlay, pred_overlay], axis=1)
+        else:
+            result = pred_overlay
+    os.makedirs(output_dir, exist_ok=True)
+    save_path = os.path.join(output_dir, f"{case_name}.png")
+    cv2.imwrite(save_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
+    return save_path
+
+
+def save_confidence_visualization(image, logits, output_dir, case_name, num_classes, alpha: float = 0.45):
+    import torch
+    probs = torch.softmax(torch.from_numpy(logits) if not torch.is_tensor(logits) else logits, dim=0).numpy()
+    rgb_image = _prepare_rgb_image(image)
+    h, w = rgb_image.shape[:2]
+    overlays = []
+    for cls in range(num_classes):
+        cls_prob = probs[cls]
+        if cls_prob.shape != (h, w):
+            cls_prob = cv2.resize(cls_prob, (w, h), interpolation=cv2.INTER_LINEAR)
+        heat_u8 = (np.clip(cls_prob, 0.0, 1.0) * 255.0).astype(np.uint8)
+        heat_color = cv2.applyColorMap(heat_u8, cv2.COLORMAP_JET)
+        heat_color = cv2.cvtColor(heat_color, cv2.COLOR_BGR2RGB)
+        overlay = (1.0 - alpha) * rgb_image.astype(np.float32) + alpha * heat_color.astype(np.float32)
+        overlay = np.clip(overlay, 0, 255).astype(np.uint8)
+        label = np.full((20, w, 3), 40, dtype=np.uint8)
+        cv2.putText(label, f"C{cls}: {cls_prob.mean():.3f}", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        overlays.append(np.concatenate([label, overlay], axis=0))
+    result = np.concatenate(overlays, axis=1)
     os.makedirs(output_dir, exist_ok=True)
     save_path = os.path.join(output_dir, f"{case_name}.png")
     cv2.imwrite(save_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
@@ -178,9 +206,10 @@ def save_multiclass_gradcam_visualization(image, class_heats, output_dir: str, c
 def prepare_visual_output_dirs(args, fold, logger):
     rgb_output_dir = None
     feat_output_dir = None
+    conf_output_dir = None
     output_root = None
 
-    if args.rgb or args.feat_vis:
+    if args.rgb or args.feat_vis or args.conf_vis:
         output_root = build_run_output_dir(args, mode="test", fold=fold)
 
     if args.rgb:
@@ -199,4 +228,9 @@ def prepare_visual_output_dirs(args, fold, logger):
             args.feat_vis_max_cases,
         )
 
-    return rgb_output_dir, feat_output_dir
+    if args.conf_vis:
+        conf_output_dir = os.path.join(output_root, "confidence")
+        os.makedirs(conf_output_dir, exist_ok=True)
+        logger.info("Confidence visualization enabled: dir=%s", conf_output_dir)
+
+    return rgb_output_dir, feat_output_dir, conf_output_dir

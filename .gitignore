@@ -16,3 +16,5 @@ temp/
 *.jpg
 .claude/
 result*/
+.agents/
+.aris/

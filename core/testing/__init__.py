@@ -11,6 +11,7 @@ from core.testing.visualization import (
     GradCAMHookManager,
     colorize_test_mask,
     prepare_visual_output_dirs,
+    save_confidence_visualization,
     save_multiclass_gradcam_visualization,
     save_test_rgb_visualization,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "colorize_test_mask",
     "prepare_visual_output_dirs",
     "persist_result_tables",
+    "save_confidence_visualization",
     "save_multiclass_gradcam_visualization",
     "save_test_rgb_visualization",
 ]
