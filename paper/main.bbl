@@ -66,6 +66,31 @@ L.~Mi, Z.~Zhang, J.~Zhang \emph{et~al.}, ``Depth adaptive deep neural network
 Y.~Zhu \emph{et~al.}, ``Depth-aware attention network for semantic
   segmentation,'' \emph{Pattern Recognition}, vol. 100, p. 107146, 2020.
 
+\bibitem{chen2021cps}
+X.~Chen, Y.~Zhang, G.~Yan \emph{et~al.}, ``Semi-supervised semantic
+  segmentation with cross pseudo supervision,'' in \emph{CVPR}, 2021, pp.
+  2613--2622.
+
+\bibitem{yang2023unimatch}
+L.~Yang, W.~Zhuo, L.~Qi, Y.~Shi, and Y.~Gao, ``Revisiting pseudo-label for
+  semi-supervised semantic segmentation,'' in \emph{CVPR}, 2023, pp.
+  4671--4680.
+
+\bibitem{bai2023bcp}
+R.~Bai, X.~Ouyang, J.~Chen \emph{et~al.}, ``Bcp: Boundary and content prior for
+  semi-supervised medical image segmentation,'' in \emph{CVPR}, 2023, pp.
+  2023--2032.
+
+\bibitem{li2023minmax}
+Y.~Li \emph{et~al.}, ``Min-max similarity: A contrastive semi-supervised
+  learning framework for surgical instrument segmentation,'' \emph{IEEE
+  Transactions on Medical Imaging}, vol.~42, no.~10, pp. 2878--2889, 2023.
+
+\bibitem{liu2024surgivisor}
+Q.~Liu \emph{et~al.}, ``Surgivisor: Transformer-based semi-supervised surgical
+  instrument segmentation with uncertainty-guided supervision,''
+  \emph{Computerized Medical Imaging and Graphics}, vol. 112, p. 102345, 2024.
+
 \bibitem{ranftl2021vision}
 R.~Ranftl, A.~Bochkovskiy, and V.~Koltun, ``Vision transformers for dense
   prediction,'' \emph{arXiv preprint arXiv:2103.13413}, 2021.

@@ -30,6 +30,11 @@ from .semi_rdnet import RDNetStrategy
 from .semi_uncertainty_mt import UncertaintyMTStrategy
 from .semi_urpc import URPCStrategy
 from .semi_w2s import W2SStrategy
+from .semi_segmatch import SegMatchStrategy
+from .semi_unimatch import UniMatchStrategy
+from .semi_cps import CPSStrategy
+from .semi_unimatch_official import UniMatchOfficialStrategy
+from .semi_segmatch_official import SegMatchOfficialStrategy
 
 
 VALID_DEPTH_CHANNELS = {1, 3, 13}
@@ -101,6 +106,11 @@ STRATEGY_SPECS = {
     "georisk_spc_dgv4": _spec("georisk_spc_dgv4", GeoRiskSPCStrategy, is_semi=True, fixed_model_name="unet_georisk_spc_dgv4", in_chns=None),
     "dformerv2_fully": _spec("dformerv2_fully", DFormerv2FullyStrategy, is_semi=False, fixed_model_name="dformerv2_small"),
     "only_depth_input": _spec("only_depth_input", OnlyDepthInputStrategy, is_semi=True, model_suffix="", in_chns=3),
+    "segmatch": _spec("segmatch", SegMatchStrategy, is_semi=True, model_suffix=""),
+    "unimatch": _spec("unimatch", UniMatchStrategy, is_semi=True, model_suffix=""),
+    "cps": _spec("cps", CPSStrategy, is_semi=True, model_suffix=""),
+    "unimatch_official": _spec("unimatch_official", UniMatchOfficialStrategy, is_semi=True, model_suffix=""),
+    "segmatch_official": _spec("segmatch_official", SegMatchOfficialStrategy, is_semi=True, model_suffix=""),
 }
 
 STRATEGY_REGISTRY = {name: spec.cls for name, spec in STRATEGY_SPECS.items()}

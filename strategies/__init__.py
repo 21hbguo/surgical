@@ -27,6 +27,9 @@ from .semi_uncertainty_mt import UncertaintyMTStrategy
 from .semi_urpc import URPCStrategy
 from .semi_only_depthInput import OnlyDepthInputStrategy
 from .semi_w2s import W2SStrategy
+from .semi_segmatch import SegMatchStrategy
+from .semi_unimatch import UniMatchStrategy
+from .semi_cps import CPSStrategy
 from .specs import STRATEGY_REGISTRY, create_strategy
 
 __all__ = [
@@ -58,4 +61,7 @@ __all__ = [
     "RDNetStrategy",
     "DFormerv2FullyStrategy",
     "OnlyDepthInputStrategy",
+    "SegMatchStrategy",
+    "UniMatchStrategy",
+    "CPSStrategy",
 ]
