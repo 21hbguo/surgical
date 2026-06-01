@@ -76,6 +76,24 @@
 - [x] GeoRisk-SPC 20% labeled (完成: 88.72±12.99)
 - [x] GeoRisk-SPC+DGv4 20% labeled (完成: 90.90±10.26)
 
+### 基线对比实验
+- [x] CPS 5% (完成: 85.39±12.45)
+- [x] CPS 10% (完成: 81.38±13.31)
+- [x] CPS 20% (完成: 89.88±9.82)
+- [x] CPS 40% (完成: 87.92±11.19)
+- [x] MMS 5% (完成: 85.75±12.14)
+- [x] MMS 10% (完成: 87.44±11.46)
+- [x] MMS 20% (完成: 87.66±11.63)
+- [x] MMS 40% (完成: 84.35±12.72)
+- [x] UniMatch_official 5% (完成: 85.29±13.82)
+- [x] UniMatch_official 10% (完成: 86.16±12.39)
+- [x] UniMatch_official 20% (完成: 86.61±10.73)
+- [x] UniMatch_official 40% (完成: 88.87±11.15)
+- [x] SegMatch_official 5% (完成: 86.42±13.22)
+- [ ] SegMatch_official 10% (进行中)
+- [ ] SegMatch_official 20%
+- [ ] SegMatch_official 40%
+
 ### 消融实验
 - [ ] 移除 L_cons (一致性损失)
 - [ ] 移除 L_bd (边界损失)
@@ -95,8 +113,11 @@
 | UniMatch | 2023 | CVPR | 否 | 弱到强一致性统一框架 |
 | BCP | 2023 | CVPR | 否 | 边界和内容先验 |
 | Min-Max Similarity | 2023 | TMI | 否 | 对比学习手术器械分割 |
-| SegMatch | 2025 | Sci. Reports | 否 | 对抗强增强伪标签 (I-FGSM) |
+| U2PL | 2022 | CVPR | 否 | 不可靠伪标签对比学习 + 内存银行 |
+| CorrMatch | 2024 | CVPR | 否 | 相关性匹配标签传播 |
 | Surgivisor | 2024 | CMIG | 否 | Transformer不确定性监督 |
+| CW-BASS | 2025 | IJCNN | 否 | 置信度加权边界感知学习 |
+| SegMatch | 2025 | Sci. Reports | 否 | 对抗强增强伪标签 (I-FGSM) |
 | GeoRisk-SPC (ours) | 2026 | -- | 是 | 几何感知风险定位 + 结构扰动一致性 |
 
 ## 关键创新点

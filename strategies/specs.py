@@ -35,6 +35,10 @@ from .semi_unimatch import UniMatchStrategy
 from .semi_cps import CPSStrategy
 from .semi_unimatch_official import UniMatchOfficialStrategy
 from .semi_segmatch_official import SegMatchOfficialStrategy
+from .semi_mms import MMSStrategy
+from .semi_u2pl import U2PLStrategy
+from .semi_corrmatch import CorrMatchStrategy
+from .semi_cwbass import CWBASStrategy
 
 
 VALID_DEPTH_CHANNELS = {1, 3, 13}
@@ -111,6 +115,10 @@ STRATEGY_SPECS = {
     "cps": _spec("cps", CPSStrategy, is_semi=True, model_suffix=""),
     "unimatch_official": _spec("unimatch_official", UniMatchOfficialStrategy, is_semi=True, model_suffix=""),
     "segmatch_official": _spec("segmatch_official", SegMatchOfficialStrategy, is_semi=True, model_suffix=""),
+    "mms": _spec("mms", MMSStrategy, is_semi=True, model_suffix=""),
+    "u2pl": _spec("u2pl", U2PLStrategy, is_semi=True, model_suffix=""),
+    "corrmatch": _spec("corrmatch", CorrMatchStrategy, is_semi=True, model_suffix=""),
+    "cwbass": _spec("cwbass", CWBASStrategy, is_semi=True, model_suffix=""),
 }
 
 STRATEGY_REGISTRY = {name: spec.cls for name, spec in STRATEGY_SPECS.items()}

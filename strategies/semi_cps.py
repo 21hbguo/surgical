@@ -14,7 +14,6 @@ class CPSStrategy(BaseTrainingStrategy):
 
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
-        self.consistency_start_iters = int(args.consistency_start_iters)
         # Create second INDEPENDENT network with fresh random weights (not EMA)
         # This matches official CPS which uses two independently initialized networks
         self.model2 = self._create_independent_model()
@@ -82,31 +81,27 @@ class CPSStrategy(BaseTrainingStrategy):
         loss_dice_2 = self.dice_loss(output2_soft[:self.labeled_bs], labeled_label.unsqueeze(1))
         sup_loss_2 = 0.5 * (loss_dice_2 + loss_ce_2)
 
-        # Cross pseudo supervision on unlabeled data
+        # Cross pseudo supervision on ALL samples (labeled + unlabeled)
+        # This matches official SSL4MIS CPS implementation
         consistency_weight = self._get_consistency_weight(iter_num)
-        consistency_loss = torch.tensor(0.0, device=self.device)
+        pseudo_1 = torch.argmax(output1_soft.detach(), dim=1)
+        pseudo_2 = torch.argmax(output2_soft.detach(), dim=1)
 
-        if iter_num >= self.consistency_start_iters and unlabeled_volume.shape[0] > 0:
-            pseudo_1 = torch.argmax(output1_soft[self.labeled_bs:].detach(), dim=1)
-            pseudo_2 = torch.argmax(output2_soft[self.labeled_bs:].detach(), dim=1)
+        # Network 1 learns from pseudo-labels of network 2
+        cps_loss_1 = F.cross_entropy(output1, pseudo_2.long())
+        # Network 2 learns from pseudo-labels of network 1
+        cps_loss_2 = F.cross_entropy(output2, pseudo_1.long())
 
-            # Network 1 learns from pseudo-labels of network 2
-            cps_loss_1 = F.cross_entropy(output1[self.labeled_bs:], pseudo_2.long())
-            # Network 2 learns from pseudo-labels of network 1
-            cps_loss_2 = F.cross_entropy(output2[self.labeled_bs:], pseudo_1.long())
-
-            consistency_loss = 0.5 * (cps_loss_1 + cps_loss_2)
-
-        # Total loss combines both networks
-        model1_loss = sup_loss_1 + consistency_weight * consistency_loss
-        model2_loss = sup_loss_2 + consistency_weight * consistency_loss
+        # Total loss: each model gets its own supervised + CPS loss
+        model1_loss = sup_loss_1 + consistency_weight * cps_loss_1
+        model2_loss = sup_loss_2 + consistency_weight * cps_loss_2
         total_loss = model1_loss + model2_loss
 
         return {
             'total': total_loss,
             'ce': loss_ce_1,
             'dice': loss_dice_1,
-            'consistency': consistency_loss,
+            'consistency': 0.5 * (cps_loss_1 + cps_loss_2),
             'consistency_weight': consistency_weight
         }
 

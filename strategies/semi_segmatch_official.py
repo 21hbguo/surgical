@@ -8,155 +8,162 @@ from .base_strategy import BaseTrainingStrategy
 class SegMatchOfficialStrategy(BaseTrainingStrategy):
     """SegMatch: Semi-supervised surgical instrument segmentation (Scientific Reports 2025).
 
-    Faithful reproduction of official paper:
-    - Spatial weak augmentation with inverse transform
-    - Photometric strong augmentation (RandAugment-style)
-    - I-FGSM adversarial: eps=0.08, K=25, alpha=eps/K
-    - Proper projection to [-eps, eps]
+    Faithful reproduction:
+    - Single model with weak/strong branches (no EMA teacher)
+    - Spatial weak augmentation with inverse transform on predictions
+    - Photometric strong augmentation (RandAugment 3-op)
+    - I-FGSM adversarial: eps=0.08, K=25, alpha=eps/K, projection around x0_s
+    - Soft pseudo labels with temperature sharpening
+    - Confidence mask applied to I-FGSM loss
     """
 
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
-        self._enable_ema_support()
-        self.consistency_start_iters = int(args.consistency_start_iters)
-        self.pseudo_threshold = getattr(args, 'pseudo_threshold', 0.95)
+        self.pseudo_threshold = getattr(args, 'pseudo_threshold', 0.8)
+        self.sharpen_temperature = getattr(args, 'sharpen_temperature', 0.5)
 
         # I-FGSM parameters (paper defaults)
         self.adversarial_eps = getattr(args, 'adversarial_eps', 0.08)
         self.adversarial_steps = getattr(args, 'adversarial_steps', 25)
         self.adversarial_alpha = self.adversarial_eps / self.adversarial_steps
 
-        # Spatial augmentation parameters
-        self.spatial_scale = getattr(args, 'spatial_scale', 0.1)
-        self.spatial_angle = getattr(args, 'spatial_angle', 10)
+    def _weak_spatial_augment(self, x, label=None, exclude_crop=False):
+        """Single random spatial weak augmentation with transform params for inverse.
 
-    def _spatial_weak_augment(self, x):
-        """Spatial weak augmentation (rotation + scale + translation).
-
-        Returns augmented image and transformation params for inverse transform.
+        Args:
+            exclude_crop: If True, only use flip/rotation (not crop).
+                Crop creates partial views that don't align with original coords.
         """
         B, C, H, W = x.shape
+        aug_type = torch.randint(0, 3 if exclude_crop else 4, (1,)).item()
 
-        # Random rotation (-10, 10 degrees)
-        angle = (torch.rand(B, device=x.device) * 2 - 1) * self.spatial_angle
-        # Random scale (0.9, 1.1)
-        scale = 1.0 + (torch.rand(B, device=x.device) * 2 - 1) * self.spatial_scale
-        # Random translation (-10%, 10%)
-        tx = (torch.rand(B, device=x.device) * 2 - 1) * 0.1
-        ty = (torch.rand(B, device=x.device) * 2 - 1) * 0.1
+        if aug_type == 0:
+            angle = (torch.rand(1).item() * 2 - 1) * 15
+            theta = torch.zeros(B, 2, 3, device=x.device)
+            cos_a = np.cos(angle * np.pi / 180)
+            sin_a = np.sin(angle * np.pi / 180)
+            theta[:, 0, 0] = cos_a
+            theta[:, 0, 1] = -sin_a
+            theta[:, 1, 0] = sin_a
+            theta[:, 1, 1] = cos_a
+            grid = F.affine_grid(theta, x.size(), align_corners=False)
+            x_aug = F.grid_sample(x, grid, align_corners=False, mode='bilinear', padding_mode='border')
+            if label is not None:
+                label_aug = label.unsqueeze(1).float()
+                label_aug = F.grid_sample(label_aug, grid, align_corners=False, mode='nearest', padding_mode='border')
+                label_aug = label_aug.squeeze(1)
+                return x_aug, label_aug, {'type': 'rotation', 'angle': angle}
+            return x_aug, None, {'type': 'rotation', 'angle': angle}
 
-        # Build affine matrix
-        theta = torch.zeros(B, 2, 3, device=x.device)
-        cos_a = torch.cos(angle * np.pi / 180)
-        sin_a = torch.sin(angle * np.pi / 180)
+        elif aug_type == 1:
+            x_aug = torch.flip(x, dims=[3])
+            if label is not None:
+                return x_aug, torch.flip(label, dims=[2]), {'type': 'hflip'}
+            return x_aug, None, {'type': 'hflip'}
 
-        theta[:, 0, 0] = cos_a * scale
-        theta[:, 0, 1] = -sin_a * scale
-        theta[:, 0, 2] = tx
-        theta[:, 1, 0] = sin_a * scale
-        theta[:, 1, 1] = cos_a * scale
-        theta[:, 1, 2] = ty
+        elif aug_type == 2:
+            x_aug = torch.flip(x, dims=[2])
+            if label is not None:
+                return x_aug, torch.flip(label, dims=[1]), {'type': 'vflip'}
+            return x_aug, None, {'type': 'vflip'}
 
-        # Apply affine transformation
-        grid = F.affine_grid(theta, x.size(), align_corners=False)
-        x_aug = F.grid_sample(x, grid, align_corners=False, mode='bilinear', padding_mode='border')
+        else:
+            scale = 0.8 + torch.rand(1).item() * 0.2
+            new_h, new_w = int(H * scale), int(W * scale)
+            top = torch.randint(0, max(H - new_h, 1), (1,)).item()
+            left = torch.randint(0, max(W - new_w, 1), (1,)).item()
+            x_crop = x[:, :, top:top+new_h, left:left+new_w]
+            x_aug = F.interpolate(x_crop, size=(H, W), mode='bilinear', align_corners=False)
+            if label is not None:
+                label_crop = label[:, top:top+new_h, left:left+new_w]
+                label_aug = F.interpolate(label_crop.unsqueeze(1).float(), size=(H, W), mode='nearest').squeeze(1)
+                return x_aug, label_aug, {'type': 'crop', 'top': top, 'left': left,
+                                          'new_h': new_h, 'new_w': new_w, 'H': H, 'W': W}
+            return x_aug, None, {'type': 'crop', 'top': top, 'left': left,
+                                 'new_h': new_h, 'new_w': new_w, 'H': H, 'W': W}
 
-        return x_aug, {'angle': angle, 'scale': scale, 'tx': tx, 'ty': ty}
+    def _inverse_transform(self, pred, params):
+        """Apply inverse spatial transform on predictions to align with original coords."""
+        t = params['type']
+        if t == 'rotation':
+            B = pred.shape[0]
+            angle = -params['angle']
+            theta_inv = torch.zeros(B, 2, 3, device=pred.device)
+            cos_a = np.cos(angle * np.pi / 180)
+            sin_a = np.sin(angle * np.pi / 180)
+            theta_inv[:, 0, 0] = cos_a
+            theta_inv[:, 0, 1] = -sin_a
+            theta_inv[:, 1, 0] = sin_a
+            theta_inv[:, 1, 1] = cos_a
+            grid = F.affine_grid(theta_inv, pred.size(), align_corners=False)
+            return F.grid_sample(pred, grid, align_corners=False, mode='bilinear', padding_mode='border')
+        elif t == 'hflip':
+            return torch.flip(pred, dims=[3])
+        elif t == 'vflip':
+            return torch.flip(pred, dims=[2])
+        else:
+            # Crop: predictions are already at original resolution after model forward
+            # No inverse needed since model outputs at original spatial dims
+            return pred
 
-    def _inverse_spatial_transform(self, x, transform_params):
-        """Apply inverse spatial transform to map predictions back to original coordinates."""
-        B, C, H, W = x.shape
-        angle = transform_params['angle']
-        scale = transform_params['scale']
-        tx = transform_params['tx']
-        ty = transform_params['ty']
-
-        # Inverse affine matrix
-        theta_inv = torch.zeros(B, 2, 3, device=x.device)
-        cos_a = torch.cos(-angle * np.pi / 180)
-        sin_a = torch.sin(-angle * np.pi / 180)
-        inv_scale = 1.0 / scale
-
-        theta_inv[:, 0, 0] = cos_a * inv_scale
-        theta_inv[:, 0, 1] = -sin_a * inv_scale
-        theta_inv[:, 0, 2] = -tx * inv_scale
-        theta_inv[:, 1, 0] = sin_a * inv_scale
-        theta_inv[:, 1, 1] = cos_a * inv_scale
-        theta_inv[:, 1, 2] = -ty * inv_scale
-
-        grid = F.affine_grid(theta_inv, x.size(), align_corners=False)
-        x_inv = F.grid_sample(x, grid, align_corners=False, mode='bilinear', padding_mode='border')
-
-        return x_inv
+    def _sharpen(self, probs, T=0.5):
+        """Temperature sharpening for soft pseudo labels."""
+        sharpened = probs ** (1.0 / T)
+        return sharpened / sharpened.sum(dim=1, keepdim=True)
 
     def _photometric_strong_augment(self, x):
-        """Photometric strong augmentation (RandAugment-style).
+        """RandAugment-style photometric strong augmentation (3 random ops)."""
+        ops = ['brightness', 'contrast', 'saturation', 'noise', 'cutout']
+        chosen = np.random.choice(ops, 3, replace=False)
 
-        Applies random brightness, contrast, saturation, hue jitter.
-        """
-        # Brightness jitter
-        if torch.rand(1).item() < 0.5:
-            brightness = 0.8 + torch.rand(1).item() * 0.4  # [0.8, 1.2]
-            x = x * brightness
-
-        # Contrast jitter
-        if torch.rand(1).item() < 0.5:
-            contrast = 0.8 + torch.rand(1).item() * 0.4  # [0.8, 1.2]
-            mean = x.mean(dim=(2, 3), keepdim=True)
-            x = contrast * (x - mean) + mean
-
-        # Gaussian noise
-        if torch.rand(1).item() < 0.5:
-            noise = torch.randn_like(x) * 0.1
-            x = x + noise
-
-        # Cutout
-        if torch.rand(1).item() < 0.5:
-            B, C, H, W = x.shape
-            cut_h = int(H * 0.2)
-            cut_w = int(W * 0.2)
-            cx = torch.randint(0, W, (1,)).item()
-            cy = torch.randint(0, H, (1,)).item()
-            x1 = max(cx - cut_w // 2, 0)
-            y1 = max(cy - cut_h // 2, 0)
-            x2 = min(cx + cut_w // 2, W)
-            y2 = min(cy + cut_h // 2, H)
-            x[:, :, y1:y2, x1:x2] = 0
+        for op in chosen:
+            if op == 'brightness':
+                factor = 0.6 + torch.rand(1).item() * 0.8
+                x = x * factor
+            elif op == 'contrast':
+                factor = 0.6 + torch.rand(1).item() * 0.8
+                mean = x.mean(dim=(2, 3), keepdim=True)
+                x = factor * (x - mean) + mean
+            elif op == 'saturation':
+                gray = x.mean(dim=1, keepdim=True)
+                factor = 0.6 + torch.rand(1).item() * 0.8
+                x = factor * x + (1 - factor) * gray
+            elif op == 'noise':
+                x = x + torch.randn_like(x) * 0.1
+            elif op == 'cutout':
+                B, C, H, W = x.shape
+                ch = int(H * 0.2)
+                cw = int(W * 0.2)
+                cy = torch.randint(0, H, (1,)).item()
+                cx = torch.randint(0, W, (1,)).item()
+                y1, y2 = max(cy - ch//2, 0), min(cy + ch//2, H)
+                x1, x2 = max(cx - cw//2, 0), min(cx + cw//2, W)
+                x[:, :, y1:y2, x1:x2] = 0
 
         return torch.clamp(x, 0, 1)
 
-    def _generate_adversarial(self, unlabeled_volume, teacher_soft, transform_params):
-        """Generate adversarial augmentation using I-FGSM.
-
-        Paper: eps=0.08, K=25, alpha=eps/K
-        Projection: [-eps, eps]
-        """
-        # Start from strong augmented image
-        adv_volume = self._photometric_strong_augment(unlabeled_volume.clone())
-        adv_volume = adv_volume.detach().requires_grad_(True)
-        pseudo_label = torch.argmax(teacher_soft, dim=1)
+    def _generate_adversarial(self, x0_s, pseudo_label, confidence_mask):
+        """I-FGSM adversarial augmentation with confidence masking."""
+        adv = x0_s.detach().requires_grad_(True)
 
         for _ in range(self.adversarial_steps):
             with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
-                adv_output = self.model(adv_volume)
-                if isinstance(adv_output, tuple):
-                    adv_output = adv_output[0]
-                adv_loss = self.ce_loss(adv_output, pseudo_label.long())
-
-            adv_loss.backward()
+                output = self.model(adv)
+                if isinstance(output, tuple):
+                    output = output[0]
+                loss = F.cross_entropy(output, pseudo_label.long(), reduction='none')
+                loss = (loss * confidence_mask).sum() / confidence_mask.sum().clamp(min=1)
+            loss.backward()
 
             with torch.no_grad():
-                # I-FGSM step with alpha
-                adv_volume = adv_volume + self.adversarial_alpha * adv_volume.grad.sign()
-                # Project to [-eps, eps] (correct projection, not [-2eps, 2eps])
-                delta = adv_volume - unlabeled_volume
+                adv = adv + self.adversarial_alpha * adv.grad.sign()
+                delta = adv - x0_s
                 delta = torch.clamp(delta, -self.adversarial_eps, self.adversarial_eps)
-                adv_volume = (unlabeled_volume + delta).detach().requires_grad_(True)
+                adv = (x0_s + delta).detach().requires_grad_(True)
 
-            # Zero model gradients
             self.model.zero_grad()
 
-        return adv_volume.detach()
+        return adv.detach()
 
     def compute_loss(self, batch_data, iter_num=0, epoch=0):
         volume = batch_data["image"].to(self.device)
@@ -169,57 +176,62 @@ class SegMatchOfficialStrategy(BaseTrainingStrategy):
         labeled_label = label[:self.labeled_bs]
         unlabeled_volume = volume[self.labeled_bs:]
 
-        # Supervised loss with spatial weak augmentation
+        # Supervised loss (with synchronized weak spatial augmentation)
+        sup_loss = torch.tensor(0.0, device=self.device)
+        loss_ce = torch.tensor(0.0, device=self.device)
+        loss_dice = torch.tensor(0.0, device=self.device)
+
         if self.labeled_bs > 0:
-            labeled_aug, transform_params = self._spatial_weak_augment(labeled_volume)
-            output_labeled = self.model(labeled_aug)
-            if isinstance(output_labeled, tuple):
-                output_labeled = output_labeled[0]
-            output_labeled_soft = torch.softmax(output_labeled, dim=1)
+            labeled_aug, label_aug, _ = self._weak_spatial_augment(labeled_volume, labeled_label)
+            out_l = self.model(labeled_aug)
+            if isinstance(out_l, tuple):
+                out_l = out_l[0]
+            out_l_soft = torch.softmax(out_l, dim=1)
+            loss_ce = self.ce_loss(out_l, label_aug.long())
+            loss_dice = self.dice_loss(out_l_soft, label_aug.unsqueeze(1))
+            sup_loss = 0.5 * (loss_dice + loss_ce)
 
-            loss_ce = self.ce_loss(output_labeled, labeled_label.long())
-            loss_dice = self.dice_loss(output_labeled_soft, labeled_label.unsqueeze(1))
-            supervised_loss = 0.5 * (loss_dice + loss_ce)
-        else:
-            supervised_loss = torch.tensor(0.0, device=self.device)
-            loss_ce = torch.tensor(0.0, device=self.device)
-            loss_dice = torch.tensor(0.0, device=self.device)
-
+        # Consistency loss (weak-to-strong with I-FGSM)
         consistency_weight = self._get_consistency_weight(iter_num)
         consistency_loss = torch.tensor(0.0, device=self.device)
 
-        if iter_num >= self.consistency_start_iters and unlabeled_volume.shape[0] > 0:
-            # Teacher with spatial weak augmentation generates pseudo-labels
+        if unlabeled_volume.shape[0] > 0:
+            # Weak branch: model on weakly augmented unlabeled -> pseudo labels
+            # Exclude crop to ensure predictions align with original coordinates
             with torch.no_grad():
-                weak_aug, transform_params = self._spatial_weak_augment(unlabeled_volume)
-                teacher_output = self.ema_model(weak_aug)
-                if isinstance(teacher_output, tuple):
-                    teacher_output = teacher_output[0]
-                teacher_soft = torch.softmax(teacher_output, dim=1)
+                weak_aug, _, aug_params = self._weak_spatial_augment(
+                    unlabeled_volume, exclude_crop=True
+                )
+                out_w = self.model(weak_aug)
+                if isinstance(out_w, tuple):
+                    out_w = out_w[0]
+                # Inverse transform predictions back to original coordinates
+                out_w_soft = torch.softmax(out_w, dim=1)
+                out_w_soft_orig = self._inverse_transform(out_w_soft, aug_params)
+                # Soft pseudo labels with temperature sharpening
+                pseudo_soft = self._sharpen(out_w_soft_orig, T=self.sharpen_temperature)
 
-                # Inverse transform pseudo-labels back to original coordinates
-                teacher_soft_orig = self._inverse_spatial_transform(
-                    teacher_soft.unsqueeze(1), transform_params
-                ).squeeze(1)
+            max_prob, pseudo_label = torch.max(pseudo_soft, dim=1)
+            confidence_mask = (max_prob >= self.pseudo_threshold).float()
 
-            # Generate adversarial strong augmentation
-            adv_volume = self._generate_adversarial(unlabeled_volume, teacher_soft_orig, transform_params)
+            # Strong branch: photometric augmentation -> x0_s
+            x0_s = self._photometric_strong_augment(unlabeled_volume)
 
-            # Student with adversarial augmentation
-            student_output = self.model(adv_volume)
-            if isinstance(student_output, tuple):
-                student_output = student_output[0]
+            # I-FGSM adversarial around x0_s (with confidence mask)
+            adv_volume = self._generate_adversarial(x0_s, pseudo_label, confidence_mask)
 
-            # Confidence mask for pseudo-labels
-            max_prob, pseudo_label = torch.max(teacher_soft_orig, dim=1)
-            mask = (max_prob >= self.pseudo_threshold).float()
+            # Student on adversarial augmentation
+            out_adv = self.model(adv_volume)
+            if isinstance(out_adv, tuple):
+                out_adv = out_adv[0]
 
-            # Cross-entropy with pseudo-labels (only on confident pixels)
-            if mask.sum() > 0:
-                ce_loss = F.cross_entropy(student_output, pseudo_label.long(), reduction='none')
-                consistency_loss = (ce_loss * mask).sum() / mask.sum()
+            if confidence_mask.sum() > 0:
+                # KL divergence with soft pseudo labels (preserves uncertainty)
+                log_adv = F.log_softmax(out_adv, dim=1)
+                kl_loss = F.kl_div(log_adv, pseudo_soft.detach(), reduction='none').sum(dim=1)
+                consistency_loss = (kl_loss * confidence_mask).sum() / confidence_mask.sum()
 
-        total_loss = supervised_loss + consistency_weight * consistency_loss
+        total_loss = sup_loss + consistency_weight * consistency_loss
 
         return {
             'total': total_loss,
@@ -234,18 +246,15 @@ class SegMatchOfficialStrategy(BaseTrainingStrategy):
         with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
             loss_dict = self.compute_loss(batch_data, iter_num, epoch)
         self._backward_and_step(loss_dict['total'], optimizer=self.optimizer)
-        self._update_ema(iter_num)
         return loss_dict
 
     @staticmethod
     def add_args(parser):
-        parser.add_argument('--pseudo_threshold', type=float, default=0.95,
-                            help='Confidence threshold for pseudo-labels')
+        parser.add_argument('--pseudo_threshold', type=float, default=0.8,
+                            help='Confidence threshold (paper stable: 0.7-0.9)')
+        parser.add_argument('--sharpen_temperature', type=float, default=0.5,
+                            help='Temperature for pseudo label sharpening')
         parser.add_argument('--adversarial_eps', type=float, default=0.08,
-                            help='Epsilon for I-FGSM (paper default: 0.08)')
+                            help='I-FGSM epsilon (paper default: 0.08)')
         parser.add_argument('--adversarial_steps', type=int, default=25,
-                            help='Number of I-FGSM steps (paper default: 25)')
-        parser.add_argument('--spatial_scale', type=float, default=0.1,
-                            help='Scale range for spatial augmentation')
-        parser.add_argument('--spatial_angle', type=float, default=10,
-                            help='Rotation angle range for spatial augmentation')
+                            help='I-FGSM steps (paper default: 25)')

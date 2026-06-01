@@ -30,6 +30,9 @@ from .semi_w2s import W2SStrategy
 from .semi_segmatch import SegMatchStrategy
 from .semi_unimatch import UniMatchStrategy
 from .semi_cps import CPSStrategy
+from .semi_unimatch_official import UniMatchOfficialStrategy
+from .semi_segmatch_official import SegMatchOfficialStrategy
+from .semi_mms import MMSStrategy
 from .specs import STRATEGY_REGISTRY, create_strategy
 
 __all__ = [
