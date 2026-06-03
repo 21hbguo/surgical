@@ -409,7 +409,7 @@ class Trainer:
             metric_name = "Dice"
             log_extra = ""
 
-        if current_metric >= self.best_performance and not np.isnan(current_metric):
+        if current_metric > self.best_performance and not np.isnan(current_metric):
             self.best_performance = current_metric
             self.best_iter = self.iter_num
             self._save_model("best")
