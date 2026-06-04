@@ -74,14 +74,14 @@
 | CW-BASS (reimpl., 缺ST++流程/boundary loss) | 40% | -- | -- | -- | -- |
 | U2PL (official) | 5% | 86.14±4.45 | 77.15±6.18 | 86.58±6.26 | 87.62±2.09 |
 | U2PL (official) | 10% | 87.98±4.77 | -- | -- | -- |
-| U2PL (official) | 20% | ⏳ 待跑 | -- | -- | -- |
-| U2PL (official) | 40% | ⏳ 待跑 | -- | -- | -- |
-| CorrMatch (official) | 5% | ⏳ 待跑 | -- | -- | -- |
-| CorrMatch (official) | 10% | ⏳ 待跑 | -- | -- | -- |
-| CorrMatch (official) | 20% | ⏳ 待跑 | -- | -- | -- |
-| CorrMatch (official) | 40% | ⏳ 待跑 | -- | -- | -- |
-| CW-BASS (official) | 5% | ⏳ 待跑 | -- | -- | -- |
-| CW-BASS (official) | 10% | ⏳ 待跑 | -- | -- | -- |
+| U2PL (official) | 20% | 88.59±4.22 | -- | -- | -- |
+| U2PL (official) | 40% | 89.57±4.18 | -- | -- | -- |
+| CorrMatch (official) | 5% | 85.45±5.78 | -- | -- | -- |
+| CorrMatch (official) | 10% | 86.22±5.41 | -- | -- | -- |
+| CorrMatch (official) | 20% | 87.87±4.89 | -- | -- | -- |
+| CorrMatch (official) | 40% | 89.07±3.88 | 81.39±5.67 | 89.24±4.99 | 90.25±1.97 |
+| CW-BASS (official) | 5% | 85.48±5.61 | 76.74±7.18 | 84.91±7.94 | 88.17±1.87 |
+| CW-BASS (official) | 10% | ⏳ 训练中 | -- | -- | -- |
 | CW-BASS (official) | 20% | ⏳ 待跑 | -- | -- | -- |
 | CW-BASS (official) | 40% | ⏳ 待跑 | -- | -- | -- |
 
@@ -136,9 +136,21 @@
 - [x] UniMatch_official 20% (完成: 86.61±10.73)
 - [x] UniMatch_official 40% (完成: 88.87±11.15)
 - [x] SegMatch_official 5% (完成: 86.42±13.22)
-- [ ] SegMatch_official 10% (进行中)
-- [ ] SegMatch_official 20%
-- [ ] SegMatch_official 40%
+- [x] SegMatch_official 10% (完成: 86.39±4.21)
+- [x] SegMatch_official 20% (完成: 81.82±7.77)
+- [x] SegMatch_official 40% (完成: 86.39±4.21)
+- [x] U2PL_official 5% (完成: 86.14±4.45)
+- [x] U2PL_official 10% (完成: 87.98±4.77)
+- [x] U2PL_official 20% (完成: 88.59±4.22)
+- [x] U2PL_official 40% (完成: 89.57±4.18)
+- [x] CorrMatch_official 5% (完成: 85.45±5.78)
+- [x] CorrMatch_official 10% (完成: 86.22±5.41)
+- [x] CorrMatch_official 20% (完成: 87.87±4.89)
+- [x] CorrMatch_official 40% (完成: 89.07±3.88)
+- [x] CW-BASS_official 5% (完成: 85.48±5.61)
+- [ ] CW-BASS_official 10% (训练中)
+- [ ] CW-BASS_official 20%
+- [ ] CW-BASS_official 40%
 
 ### 消融实验
 - [ ] 移除 L_cons (一致性损失)

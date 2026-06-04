@@ -1,0 +1,76 @@
+Configuration,Fold,Train_Best_Dice,Test_Dice,Status
+GeoRisk-SPC-DG (full),f0,0.8904,0.9215,done
+GeoRisk-SPC-DG (full),f1,0.8458,0.8506,done
+GeoRisk-SPC-DG (full),f2,0.9542,0.9578,done
+GeoRisk-SPC-DG (full),f3,0.8676,0.9084,done
+GeoRisk-SPC-DG (full),ALL,88.95±4.05,90.96±3.86,summary
+w/o L_cons,f0,0.8901,0.9168,done
+w/o L_cons,f1,0.8513,0.8619,done
+w/o L_cons,f2,0.9522,0.9563,done
+w/o L_cons,f3,0.8753,0.9152,done
+w/o L_cons,ALL,89.22±4.31,-,summary
+w/o L_bd,f0,0.8858,0.9211,done
+w/o L_bd,f1,0.8478,0.8269,done
+w/o L_bd,f2,0.9522,0.9576,done
+w/o L_bd,f3,0.8703,0.9100,done
+w/o L_bd,ALL,88.90±4.49,-,summary
+w/o risk localization,f0,0.8948,0.9247,done
+w/o risk localization,f1,0.8549,0.8624,done
+w/o risk localization,f2,0.9522,0.9573,done
+w/o risk localization,f3,0.8683,0.9126,done
+w/o risk localization,ALL,89.25±4.31,91.42±3.41,summary
+Depth only (G_d),f0,0.8888,0.9145,done
+Depth only (G_d),f1,0.8536,0.8652,done
+Depth only (G_d),f2,0.9525,0.9574,done
+Depth only (G_d),f3,0.8698,0.9080,done
+Depth only (G_d),ALL,89.12±4.33,91.13±3.27,summary
+Uncertainty only (U_t),f0,0.8936,0.9227,done
+Uncertainty only (U_t),f1,0.8461,0.8535,done
+Uncertainty only (U_t),f2,0.9532,0.9617,done
+Uncertainty only (U_t),f3,0.8650,0.9014,done
+Uncertainty only (U_t),ALL,88.95±4.68,90.98±3.91,summary
+Conflict only (C_conf),f0,0.8917,0.9151,done
+Conflict only (C_conf),f1,0.8541,0.8629,done
+Conflict only (C_conf),f2,0.9515,0.9586,done
+Conflict only (C_conf),f3,0.8681,0.9083,done
+Conflict only (C_conf),ALL,89.14±4.30,91.12±3.39,summary
+Depth + Uncertainty,f0,0.8898,0.9208,done
+Depth + Uncertainty,f1,0.8504,0.8603,done
+Depth + Uncertainty,f2,0.9523,0.9592,done
+Depth + Uncertainty,f3,0.8686,0.9193,done
+Depth + Uncertainty,ALL,89.03±4.44,91.49±3.53,summary
+Random mask (tau_r=1.0),f0,0.8851,0.9204,done
+Random mask (tau_r=1.0),f1,0.8475,0.8614,done
+Random mask (tau_r=1.0),f2,0.9515,0.9583,done
+Random mask (tau_r=1.0),f3,0.8662,0.9075,done
+Random mask (tau_r=1.0),ALL,88.76±4.53,-,summary
+DG encoder w/o risk,f0,0.8940,0.9173,done
+DG encoder w/o risk,f1,0.8498,0.8581,done
+DG encoder w/o risk,f2,0.9525,0.9600,done
+DG encoder w/o risk,f3,0.8709,0.9162,done
+DG encoder w/o risk,ALL,89.18±4.43,-,summary
+tau_r=0.3,f0,0.8934,0.9249,done
+tau_r=0.3,f1,0.8519,0.8261,done
+tau_r=0.3,f2,0.9524,0.9593,done
+tau_r=0.3,f3,0.8744,0.9155,done
+tau_r=0.3,ALL,89.30±4.31,-,summary
+tau_r=0.7,f0,0.8798,0.9168,done
+tau_r=0.7,f1,0.8419,0.8624,done
+tau_r=0.7,f2,0.9526,0.9587,done
+tau_r=0.7,f3,0.8759,0.9113,done
+tau_r=0.7,ALL,88.75±4.66,-,summary
+tau_c=0.7,f0,0.8993,0.9132,done
+tau_c=0.7,f1,0.8500,0.8610,done
+tau_c=0.7,f2,0.9522,0.9570,done
+tau_c=0.7,f3,0.8655,0.9117,done
+tau_c=0.7,ALL,89.17±4.53,-,summary
+tau_c=0.95,f0,0.8892,0.9131,done
+tau_c=0.95,f1,0.8501,0.8435,done
+tau_c=0.95,f2,0.9521,0.9577,done
+tau_c=0.95,f3,0.8674,0.9030,done
+tau_c=0.95,ALL,88.97±4.46,90.43±4.35,summary
+tau_r=0.3+tau_c=0.7,f0,0.8829,0.9090,done
+tau_r=0.3+tau_c=0.7,f1,0.8568,0.8482,done
+tau_r=0.3+tau_c=0.7,f2,0.9525,0.9578,done
+tau_r=0.3+tau_c=0.7,f3,0.8802,0.9115,done
+tau_r=0.3+tau_c=0.7,ALL,89.31±4.13,90.66±4.06,summary

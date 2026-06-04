@@ -77,6 +77,11 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
                             help='High-risk consistency loss weight')
         parser.add_argument('--risk_bd_weight', type=float, default=0.5,
                             help='Boundary consistency loss weight')
+        parser.add_argument('--risk_source', type=str, default='all',
+                            choices=['all', 'depth', 'uncertainty', 'conflict', 'depth_uncertainty'],
+                            help='Risk sources: all=U_t*G_d+lambda*C, depth=G_d only, uncertainty=U_t only, conflict=C only, depth_uncertainty=U_t*G_d')
+        parser.add_argument('--risk_no_supervision', action='store_true',
+                            help='Disable risk-based supervision (standard semi-supervised)')
 
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
@@ -91,6 +96,8 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         self.pl_weight = args.risk_pl_weight
         self.cons_weight = args.risk_cons_weight
         self.bd_weight = args.risk_bd_weight
+        self.risk_source = getattr(args, 'risk_source', 'all')
+        self.risk_no_supervision = getattr(args, 'risk_no_supervision', False)
         self.kl_loss = nn.KLDivLoss(reduction='none')
 
     def _compute_risk_map(self, depth, teacher_pred):
@@ -118,9 +125,18 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         B_p_norm = _normalize_map(B_p)
         C_conf = torch.abs(G_d_norm - B_p_norm)
 
-        # 6. Final risk map
+        # 6. Final risk map (selectable sources)
         U_t_norm = _normalize_map(U_t)
-        R = U_t_norm * G_d_norm + self.lambda_c * C_conf
+        if self.risk_source == 'depth':
+            R = G_d_norm
+        elif self.risk_source == 'uncertainty':
+            R = U_t_norm
+        elif self.risk_source == 'conflict':
+            R = C_conf
+        elif self.risk_source == 'depth_uncertainty':
+            R = U_t_norm * G_d_norm
+        else:  # 'all'
+            R = U_t_norm * G_d_norm + self.lambda_c * C_conf
 
         # 7. Region masks
         conf = teacher_pred.max(dim=1, keepdim=True)[0]
@@ -210,43 +226,43 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         bd_loss = torch.tensor(0.0, device=self.device)
         consistency_weight = self._get_consistency_weight(iter_num)
 
-        if (iter_num >= self.consistency_start_iters
-                and B_u > 0
-                and risk_mask is not None
-                and M_l is not None
-                and output_pert is not None):
+        if iter_num >= self.consistency_start_iters and B_u > 0 and teacher_pred is not None:
             clean_unlabeled = output_clean[self.labeled_bs:]
             clean_unlabeled_soft = clean_soft[self.labeled_bs:]
             pseudo_label = teacher_pred.argmax(dim=1)
 
-            # Resize masks to prediction spatial size
-            H, W = clean_unlabeled.shape[2:]
-            M_r_up = F.interpolate(risk_mask, size=(H, W), mode='nearest')
-            M_l_up = F.interpolate(M_l, size=(H, W), mode='nearest')
+            if self.risk_no_supervision:
+                # Standard semi-supervised: all unlabeled pixels get pseudo-label loss
+                pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
+                pl_loss = pl_ce.mean()
+            elif risk_mask is not None and M_l is not None and output_pert is not None:
+                # Resize masks to prediction spatial size
+                H, W = clean_unlabeled.shape[2:]
+                M_r_up = F.interpolate(risk_mask, size=(H, W), mode='nearest')
+                M_l_up = F.interpolate(M_l, size=(H, W), mode='nearest')
 
-            # L_pl: low-risk pseudo-label loss
-            pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
-            pl_pixels = M_l_up.sum()
-            if pl_pixels > 0:
-                pl_loss = (M_l_up.squeeze(1) * pl_ce).sum() / (pl_pixels + 1e-8)
+                # L_pl: low-risk pseudo-label loss
+                pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
+                pl_pixels = M_l_up.sum()
+                if pl_pixels > 0:
+                    pl_loss = (M_l_up.squeeze(1) * pl_ce).sum() / (pl_pixels + 1e-8)
 
-            # L_cons: high-risk soft consistency (KL divergence)
-            # Target = clean student (detached), input = perturbed student
-            pert_unlabeled_soft = torch.softmax(output_pert[self.labeled_bs:], dim=1)
-            kl = self.kl_loss(
-                torch.log(pert_unlabeled_soft + 1e-8),
-                clean_unlabeled_soft.detach()
-            ).sum(dim=1, keepdim=True)
-            r_pixels = M_r_up.sum()
-            if r_pixels > 0:
-                cons_loss = (M_r_up * kl).sum() / (r_pixels + 1e-8)
+                # L_cons: high-risk soft consistency (KL divergence)
+                pert_unlabeled_soft = torch.softmax(output_pert[self.labeled_bs:], dim=1)
+                kl = self.kl_loss(
+                    torch.log(pert_unlabeled_soft + 1e-8),
+                    clean_unlabeled_soft.detach()
+                ).sum(dim=1, keepdim=True)
+                r_pixels = M_r_up.sum()
+                if r_pixels > 0:
+                    cons_loss = (M_r_up * kl).sum() / (r_pixels + 1e-8)
 
-            # L_bd: boundary consistency
-            grad_clean = self._compute_boundary_gradients(clean_unlabeled_soft.detach())
-            grad_pert = self._compute_boundary_gradients(pert_unlabeled_soft)
-            bd_diff = torch.abs(grad_clean - grad_pert)
-            if r_pixels > 0:
-                bd_loss = (M_r_up * bd_diff).sum() / (r_pixels + 1e-8)
+                # L_bd: boundary consistency
+                grad_clean = self._compute_boundary_gradients(clean_unlabeled_soft.detach())
+                grad_pert = self._compute_boundary_gradients(pert_unlabeled_soft)
+                bd_diff = torch.abs(grad_clean - grad_pert)
+                if r_pixels > 0:
+                    bd_loss = (M_r_up * bd_diff).sum() / (r_pixels + 1e-8)
 
         total_loss = (supervised_loss
                       + consistency_weight * self.pl_weight * pl_loss
