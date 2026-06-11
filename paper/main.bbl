@@ -37,28 +37,6 @@ T.~Rueckert, D.~Rueckert, and C.~Palm, ``Methods and datasets for segmentation
   review of the state of the art,'' \emph{Computers in Biology and Medicine},
   vol. 169, p. 107929, 2024.
 
-\bibitem{peng2024reducing}
-H.~Peng, S.~Lin, D.~King, Y.-H. Su, W.~M. Abuzeid, R.~A. Bly, K.~S. Moe, and
-  B.~Hannaford, ``Reducing annotating load: Active learning with synthetic
-  images in surgical instrument segmentation,'' \emph{Medical Image Analysis},
-  vol.~97, p. 103246, 2024.
-
-\bibitem{colleoni2024guided}
-E.~Colleoni, R.~Sanchez~Matilla, I.~Luengo, and D.~Stoyanov, ``Guided image
-  generation for improved surgical image segmentation,'' \emph{Medical Image
-  Analysis}, vol.~97, p. 103263, 2024.
-
-\bibitem{li2023minmax}
-A.~Lou, K.~Tawfik, X.~Yao, Z.~Liu, and J.~Noble, ``Min-max similarity: A
-  contrastive semi-supervised deep learning network for surgical tools
-  segmentation,'' \emph{IEEE Transactions on Medical Imaging}, vol.~42, no.~10,
-  pp. 2832--2841, 2023.
-
-\bibitem{segmatch2025}
-M.~Wei, C.~Budd, L.~C. Garcia-Peraza-Herrera, R.~Dorent, M.~Shi, and
-  T.~Vercauteren, ``Segmatch: semi-supervised surgical instrument
-  segmentation,'' \emph{Scientific Reports}, vol.~15, no.~1, 2025.
-
 \bibitem{tarvainen2017mean}
 A.~Tarvainen and H.~Valpola, ``Mean teachers are better role models:
   Weight-averaged consistency targets improve semi-supervised deep learning
@@ -82,21 +60,31 @@ L.~Yang, L.~Qi, L.~Feng, W.~Zhang, and Y.~Shi, ``Revisiting weak-to-strong
   consistency in semi-supervised semantic segmentation,'' in \emph{CVPR}, 2023,
   pp. 7236--7246.
 
-\bibitem{yu2019uncertainty}
-L.~Yu \emph{et~al.}, ``Uncertainty-aware self-ensembling model for
-  semi-supervised 3d left atrium segmentation,'' in \emph{MICCAI}, 2019, pp.
-  605--613.
+\bibitem{sun2024corrmatch}
+B.~Sun, Y.~Yang, L.~Zhang, M.-M. Cheng, and Q.~Hou, ``Corrmatch: Label
+  propagation via correlation matching for semi-supervised semantic
+  segmentation,'' in \emph{CVPR}, 2024, pp. 3097--3107.
 
-\bibitem{chen2021urpc}
-X.~Chen \emph{et~al.}, ``Semi-supervised medical image segmentation with
-  uncertainty rectified pyramid consistency,'' in \emph{MICCAI}, 2021, pp.
-  53--63.
+\bibitem{cwbass2025}
+E.~Tarubinga, J.~Kalafatovich, and S.-W. Lee, ``Cw-bass: Confidence-weighted
+  boundary-aware learning for semi-supervised semantic segmentation,'' in
+  \emph{IJCNN}, 2025, pp. 1--8.
+
+\bibitem{yang2025unimatchv2}
+L.~Yang, Z.~Zhao, and H.~Zhao, ``Unimatch v2: Pushing the limit of
+  semi-supervised semantic segmentation,'' \emph{IEEE Transactions on Pattern
+  Analysis and Machine Intelligence}, vol.~47, no.~4, pp. 3031--3048, 2025.
 
 \bibitem{liu2024crossstyle}
 J.~Liu, C.~Desrosiers, D.~Yu, and Y.~Zhou, ``Semi-supervised medical image
   segmentation using cross-style consistency with shape-aware and local context
   constraints,'' \emph{IEEE Transactions on Medical Imaging}, vol.~43, no.~4,
   pp. 1449--1461, 2024.
+
+\bibitem{das2024decoupled}
+A.~Das, C.~Gautam, H.~Cholakkal, P.~Agrawal, F.~Yang, R.~Savitha, and Y.~Liu,
+  ``Decoupled training for semi-supervised medical image segmentation with
+  worst-case-aware learning,'' in \emph{MICCAI}, 2024, pp. 45--55.
 
 \bibitem{xu2024drlssl}
 C.~Xu, T.~Zhang, D.~Zhang, D.~Zhang, and J.~Han, ``Deep generative adversarial
@@ -115,6 +103,16 @@ Q.~Zeng, Y.~Xie, Z.~Lu, M.~Lu, Y.~Wu, and Y.~Xia, ``Segment together: A
   versatile paradigm for semi-supervised medical image segmentation,''
   \emph{IEEE Transactions on Medical Imaging}, vol.~44, no.~7, pp. 2948--2959,
   2025.
+
+\bibitem{liu2024surgivisor}
+Q.~Liu \emph{et~al.}, ``Surgivisor: Transformer-based semi-supervised surgical
+  instrument segmentation with uncertainty-guided supervision,''
+  \emph{Computerized Medical Imaging and Graphics}, vol. 112, p. 102345, 2024.
+
+\bibitem{segmatch2025}
+M.~Wei, C.~Budd, L.~C. Garcia-Peraza-Herrera, R.~Dorent, M.~Shi, and
+  T.~Vercauteren, ``Segmatch: semi-supervised surgical instrument
+  segmentation,'' \emph{Scientific Reports}, vol.~15, no.~1, 2025.
 
 \bibitem{ranftl2021vision}
 R.~Ranftl, A.~Bochkovskiy, and V.~Koltun, ``Vision transformers for dense
@@ -139,29 +137,42 @@ E.~Colleoni and D.~Stoyanov, ``Robotic instrument segmentation with
   image-to-image translation,'' \emph{IEEE Robotics and Automation Letters},
   vol.~6, no.~2, pp. 935--942, 2021.
 
-\bibitem{yang2025unimatchv2}
-L.~Yang, Z.~Zhao, and H.~Zhao, ``Unimatch v2: Pushing the limit of
-  semi-supervised semantic segmentation,'' \emph{IEEE Transactions on Pattern
-  Analysis and Machine Intelligence}, vol.~47, no.~4, pp. 3031--3048, 2025.
+\bibitem{peng2024reducing}
+H.~Peng, S.~Lin, D.~King, Y.-H. Su, W.~M. Abuzeid, R.~A. Bly, K.~S. Moe, and
+  B.~Hannaford, ``Reducing annotating load: Active learning with synthetic
+  images in surgical instrument segmentation,'' \emph{Medical Image Analysis},
+  vol.~97, p. 103246, 2024.
 
-\bibitem{sun2024corrmatch}
-B.~Sun, Y.~Yang, L.~Zhang, M.-M. Cheng, and Q.~Hou, ``Corrmatch: Label
-  propagation via correlation matching for semi-supervised semantic
-  segmentation,'' in \emph{CVPR}, 2024, pp. 3097--3107.
+\bibitem{colleoni2024guided}
+E.~Colleoni, R.~Sanchez~Matilla, I.~Luengo, and D.~Stoyanov, ``Guided image
+  generation for improved surgical image segmentation,'' \emph{Medical Image
+  Analysis}, vol.~97, p. 103263, 2024.
 
-\bibitem{das2024decoupled}
-A.~Das, C.~Gautam, H.~Cholakkal, P.~Agrawal, F.~Yang, R.~Savitha, and Y.~Liu,
-  ``Decoupled training for semi-supervised medical image segmentation with
-  worst-case-aware learning,'' in \emph{MICCAI}, 2024, pp. 45--55.
+\bibitem{yu2019uncertainty}
+L.~Yu \emph{et~al.}, ``Uncertainty-aware self-ensembling model for
+  semi-supervised 3d left atrium segmentation,'' in \emph{MICCAI}, 2019, pp.
+  605--613.
 
-\bibitem{liu2024surgivisor}
-Q.~Liu \emph{et~al.}, ``Surgivisor: Transformer-based semi-supervised surgical
-  instrument segmentation with uncertainty-guided supervision,''
-  \emph{Computerized Medical Imaging and Graphics}, vol. 112, p. 102345, 2024.
+\bibitem{chen2021urpc}
+X.~Chen \emph{et~al.}, ``Semi-supervised medical image segmentation with
+  uncertainty rectified pyramid consistency,'' in \emph{MICCAI}, 2021, pp.
+  53--63.
+
+\bibitem{luo2022urpc}
+X.~Luo, G.~Wang, W.~Liao, J.~Chen, T.~Song, Y.~Chen, S.~Zhang, D.~N. Metaxas,
+  and S.~Zhang, ``Semi-supervised medical image segmentation via uncertainty
+  rectified pyramid consistency,'' \emph{Medical Image Analysis}, vol.~80, p.
+  102517, 2022.
+
+\bibitem{li2023minmax}
+A.~Lou, K.~Tawfik, X.~Yao, Z.~Liu, and J.~Noble, ``Min-max similarity: A
+  contrastive semi-supervised deep learning network for surgical tools
+  segmentation,'' \emph{IEEE Transactions on Medical Imaging}, vol.~42, no.~10,
+  pp. 2832--2841, 2023.
 
 \bibitem{lee2013pseudo}
 D.-H. Lee, ``Pseudo-label: The simple and efficient semi-supervised learning
-  method for deep neural networks,'' \emph{ICML Workshop}, 2013.
+  method for deep neural networks,'' in \emph{ICML Workshop}, 2013.
 
 \bibitem{zhang2021flexmatch}
 B.~Zhang \emph{et~al.}, ``Flexmatch: Boosting semi-supervised learning with
@@ -171,9 +182,17 @@ B.~Zhang \emph{et~al.}, ``Flexmatch: Boosting semi-supervised learning with
 O.~Ronneberger, P.~Fischer, and T.~Brox, ``U-net: Convolutional networks for
   biomedical image segmentation,'' in \emph{MICCAI}, 2015, pp. 234--241.
 
-\bibitem{cwbass2025}
-E.~Tarubinga, J.~Kalafatovich, and S.-W. Lee, ``Cw-bass: Confidence-weighted
-  boundary-aware learning for semi-supervised semantic segmentation,'' in
-  \emph{IJCNN}, 2025, pp. 1--8.
+\bibitem{sobel1968}
+I.~Sobel and G.~Feldman, ``A 3x3 isotropic gradient operator for image
+  processing,'' \emph{Pattern Classification and Scene Analysis}, pp. 271--272,
+  1968.
+
+\bibitem{shannon1948}
+C.~E. Shannon, ``A mathematical theory of communication,'' \emph{The Bell
+  System Technical Journal}, vol.~27, no.~3, pp. 379--423, 1948.
+
+\bibitem{kullback1951}
+S.~Kullback and R.~A. Leibler, ``On information and sufficiency,'' \emph{The
+  Annals of Mathematical Statistics}, vol.~22, no.~1, pp. 79--86, 1951.
 
 \end{thebibliography}

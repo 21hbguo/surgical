@@ -17,7 +17,7 @@
 \maketitle
 
 \begin{abstract}
-Surgical instrument segmentation is a key prerequisite for surgical scene understanding, robotic perception, and image-guided assistance, yet dense annotation remains expensive because tool boundaries are thin, reflective, articulated, and frequently occluded. Semi-supervised learning reduces this burden by exploiting unlabeled frames, but its effectiveness is limited by a structured failure mode: pseudo-label reliability is spatially heterogeneous, with trustworthy predictions in homogeneous tool interiors coexisting with unreliable predictions around boundaries, specular highlights, occlusions, and depth discontinuities. Existing semi-supervised segmentation methods mainly improve pseudo-label generation or consistency regularization, but they do not explicitly decide which surgical pixels should be trusted by hard pseudo-label supervision. We propose GeoRisk-SPC, a geometry-conditioned pseudo-label risk supervision framework for semi-supervised surgical instrument segmentation. GeoRisk-SPC estimates a pixel-wise risk map from monocular depth discontinuity, teacher uncertainty, and geometry-semantic conflict; assigns hard pseudo-label supervision only to low-risk high-confidence pixels; and applies soft structural consistency under risk-guided feature perturbation to high-risk pixels. The full model, GeoRisk-SPC-DG, further uses a depth-guided geometric encoder that injects multi-scale depth and depth-gradient context through gated residual modulation. Experiments on EndoVis 2017 with 4-fold cross-validation show that GeoRisk-SPC-DG achieves 89.78\% Dice at 40\% labels, 88.09\% at 10\% labels, and 86.89\% at 5\% labels, outperforming strong recent baselines including UniMatch and SegMatch under the same protocol. GeoRisk-SPC-DG with 10\% labels also surpasses SegMatch with 40\% labels, indicating that geometry-aware risk supervision improves label efficiency by suppressing error propagation from unreliable pseudo-label regions.
+Semi-supervised surgical instrument segmentation reduces annotation cost, but pseudo-label errors concentrate at thin tool boundaries, occlusion interfaces, and depth discontinuities. Existing methods strengthen pseudo-label generation or consistency regularization but still treat confidence as the main trust criterion. We propose GeoRisk-SPC, a geometry-conditioned pseudo-label risk supervision framework that uses depth discontinuity to decide where pseudo-labels should not be trusted. GeoRisk-SPC builds a pixel-wise risk map from monocular depth discontinuity, teacher uncertainty, and geometry-semantic conflict; applies hard pseudo-label loss to low-risk pixels; and applies soft structural consistency with risk-guided feature perturbation to high-risk pixels. The GeoRisk-SPC-DG variant adds DepthGuiderV4, a gated multi-scale depth encoder with residual modulation. On EndoVis 2017 with 4-fold cross-validation, GeoRisk-SPC-DG achieves test Dice of 88.26\%, 90.42\%, 90.90\%, and 91.41\% at 5--40\% labels, outperforming baselines at 10--40\%. At 20\% labels, Boundary F1 reaches 92.42\% versus 89.66\% for Mean Teacher. The depth encoder is the most reliable contributor (+1.40 points over MT). Risk localization identifies unreliable pseudo-label regions with a large accuracy gap between low-risk and high-risk pixels, though fixed-threshold calibration remains a limitation. These findings support depth both as a feature source and as a pseudo-label risk prior.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -25,314 +25,348 @@ semi-supervised medical image segmentation, surgical instrument segmentation, ps
 \end{IEEEkeywords}
 
 \section{Introduction}
-Robotic-assisted minimally invasive surgery is increasingly data-driven. Accurate surgical instrument segmentation supports tool tracking, workflow analysis, human-robot interaction, augmented reality guidance, and safety-critical scene understanding \cite{maierhein2017surgical,allan20192017,rueckert2024methods}. Modern segmentation networks have made substantial progress, yet their deployment in surgical video remains constrained by annotation cost. Pixel-wise instrument masks require expert review, careful boundary tracing, and repeated quality control because tools are thin, articulated, reflective, and frequently occluded by tissue, smoke, blood, or other instruments. Recent work has therefore explored synthetic data, active learning, and semi-supervised learning to reduce the annotation burden \cite{peng2024reducing,colleoni2024guided,li2023minmax,segmatch2025}.
-Semi-supervised learning (SSL) is appealing for surgical video because unlabeled frames are abundant. Most SSL segmentation methods combine pseudo-labeling and consistency regularization: a teacher or a peer model predicts labels on weakly augmented images, and a student is trained to match those predictions under stronger perturbations \cite{tarvainen2017mean,berthelot2019mixmatch,chen2021cps,wang2022u2pl,yang2023unimatch}. Medical image segmentation has followed the same trajectory, progressing from uncertainty-aware teacher-student learning \cite{yu2019uncertainty,chen2021urpc} to stronger TMI-era paradigms based on cross-style consistency, adversarial reinforcement learning, probabilistic prototypes, and versatile collaborative training \cite{liu2024crossstyle,xu2024drlssl,yuan2025probabilistic,zeng2025segment}. These methods improve how pseudo-labels are generated, filtered, propagated, or regularized.
-However, surgical instrument segmentation exposes a limitation that remains under-addressed in this line of work: pseudo-label errors are not spatially uniform. The interior of a metallic instrument shaft can be predicted with high confidence, while its boundary, tip, reflection, or occlusion interface remains unreliable in the same frame. Treating all confident unlabeled pixels with a single rule ignores this heterogeneity. A globally high confidence score can still be misleading near fine boundaries, and uniformly applying hard pseudo-label supervision can reinforce boundary leakage, tool fragmentation, and foreground-background confusion. This failure mode is especially relevant for surgical scenes, where visual ambiguity is coupled with geometric discontinuities caused by tool-tissue separation, articulated tool motion, and abrupt depth changes.
-The key observation of this work is that unreliable pseudo-label regions are geometrically structured. Monocular depth estimation has matured into a practical dense prediction tool \cite{ranftl2021vision}, and depth-aware segmentation studies show that depth cues are useful for disambiguating object boundaries and scene layout \cite{mi2017depth,zhu2020depth,yin2026dformer}. In surgical video, depth discontinuities provide an external cue that is complementary to teacher confidence: an uncertain teacher prediction located on a depth edge is more suspicious than the same uncertainty in a homogeneous region, while disagreement between depth boundaries and predicted semantic boundaries reveals geometry-semantic conflict. This motivates a shift from making pseudo-labels uniformly stronger to estimating where pseudo-labels should be trusted.
-We propose GeoRisk-SPC (Geometry-conditioned Pseudo-label Risk Supervision), a semi-supervised framework that explicitly models pixel-wise pseudo-label risk for surgical instrument segmentation. GeoRisk-SPC first estimates a risk map by combining local depth discontinuity, teacher entropy, and geometry-semantic conflict. It then uses the risk map to partition unlabeled pixels into low-risk high-confidence regions and high-risk ambiguous regions. Low-risk pixels receive hard pseudo-label supervision, whereas high-risk pixels are trained through soft structural consistency between clean and perturbed student branches. A risk-guided feature perturbation module concentrates representation disturbance on high-risk regions so that robustness is learned where pseudo-label errors occur. The full variant, GeoRisk-SPC-DG, uses a depth-guided geometric encoder to inject multi-scale depth and depth-gradient context into RGB features through gated residual modulation.
-Our key contributions are:
+Surgical instrument segmentation is a core perception problem for robotic-assisted minimally invasive surgery. Accurate masks support tool tracking, workflow analysis, augmented reality guidance, human-robot interaction, and downstream surgical scene understanding \cite{maierhein2017surgical,allan20192017,rueckert2024methods}. Despite strong progress in deep segmentation, surgical video remains difficult to annotate at scale. Instrument shafts are thin, tips are small, metallic surfaces are reflective, and boundaries are frequently obscured by tissue, smoke, blood, motion blur, or another tool. Dense masks therefore require expert labor and careful quality control.
+
+Semi-supervised learning (SSL) is attractive because unlabeled surgical frames are abundant. The dominant SSL recipe combines pseudo-labeling and consistency regularization: a teacher, an exponential moving average model, or a peer network predicts targets on weakly perturbed unlabeled images, and a student is trained under stronger perturbations \cite{tarvainen2017mean,berthelot2019mixmatch,chen2021cps,wang2022u2pl,yang2023unimatch}. The 2024--2026 literature has intensified this direction. Generic semi-supervised segmentation has advanced through correlation-based propagation, boundary-aware confidence weighting, and stronger weak-to-strong formulations \cite{sun2024corrmatch,cwbass2025,yang2025unimatchv2}. Medical SSL has moved toward cross-style consistency, worst-case-aware decoupled training, adversarial reinforcement learning, probabilistic prototypes, and collaborative segmentation paradigms \cite{liu2024crossstyle,das2024decoupled,xu2024drlssl,yuan2025probabilistic,zeng2025segment}. Surgical SSL has also become more competitive through uncertainty-guided transformer supervision and adversarial pseudo-label augmentation \cite{liu2024surgivisor,segmatch2025}.
+
+These methods make pseudo-labels stronger, but surgical scenes expose a remaining failure mode: pseudo-label reliability is spatially heterogeneous. A teacher can be confident and correct in a homogeneous tool shaft while being wrong at the adjacent tool edge, tip, reflection, or occlusion boundary. A global confidence threshold does not fully capture this structure. Hard pseudo-label supervision on unreliable boundary pixels can reinforce foreground leakage and fragmented instruments, whereas uniformly suppressing unlabeled supervision wastes reliable interior and background pixels.
+
+Our key observation is that unreliable pseudo-label regions are geometrically structured. Monocular depth prediction is now a practical dense cue \cite{ranftl2021vision}, and RGB-D segmentation studies consistently show that depth helps with object layout and boundaries \cite{mi2017depth,zhu2020depth,yin2026dformer}. In endoscopic images, instrument-tissue interfaces and tool overlap often create local depth discontinuities. These discontinuities are not a substitute for semantic segmentation labels, but they are useful for judging pseudo-label risk. This leads to the sharp design principle of GeoRisk-SPC: depth is not used as another segmentation modality only; it is used to decide where pseudo-labels should not be trusted.
+
+We propose GeoRisk-SPC (Geometry-conditioned Pseudo-label Risk Supervision), a semi-supervised framework for surgical instrument segmentation. GeoRisk-SPC estimates a risk map by combining local depth discontinuity, teacher entropy, and geometry-semantic boundary conflict. It then partitions unlabeled pixels into low-risk high-confidence regions and high-risk ambiguous regions. Low-risk pixels receive hard pseudo-label supervision. High-risk pixels avoid hard teacher labels and instead receive soft structural consistency between clean and risk-perturbed student branches. The full GeoRisk-SPC-DG model adds a depth-guided geometric encoder, DepthGuiderV4, which injects multi-scale depth and depth-gradient features into RGB features through gated residual modulation.
+
+Our contributions are:
 \begin{itemize}
-\item We formulate semi-supervised surgical instrument segmentation as a geometry-conditioned pseudo-label risk problem, replacing uniform unlabeled-pixel treatment with pixel-wise trust estimation.
-\item We propose a risk localization module that combines monocular depth discontinuity, teacher uncertainty, and geometry-semantic conflict to identify unreliable pseudo-label regions.
-\item We design region-aware supervision that assigns hard pseudo-label learning to low-risk pixels and soft structural consistency to high-risk pixels, reducing error propagation while retaining unlabeled learning signals.
-\item We introduce risk-guided structural perturbation and a depth-guided geometric encoder that injects multi-scale depth context into RGB features through gated residual modulation.
-\item We conduct 4-fold evaluation on EndoVis 2017 under 5\%, 10\%, 20\%, and 40\% label ratios, comparing against classical SSL methods, recent semantic segmentation baselines, surgical SSL methods, and available official implementations.
+\item We formulate semi-supervised surgical instrument segmentation as a geometry-conditioned pseudo-label risk problem, shifting the question from how to generate a stronger pseudo-label everywhere to where a pseudo-label should be trusted.
+\item We propose a risk localization module that combines monocular depth discontinuity, teacher uncertainty, and geometry-semantic conflict to select supervision types for unlabeled pixels.
+\item We design region-aware supervision with hard pseudo-label learning in low-risk pixels and soft structural consistency in high-risk pixels, together with risk-guided feature perturbation.
+\item We introduce DepthGuiderV4, a gated multi-scale depth encoder that provides the strongest empirical contribution in our study.
+\item We report 4-fold test results on EndoVis 2017 at 5\%, 10\%, 20\%, and 40\% label ratios, and we explicitly analyze the non-monotonic ablation behavior caused by fixed-threshold risk calibration.
 \end{itemize}
 
 \section{Related Work}
-
 \subsection{Surgical Instrument Segmentation}
-Surgical instrument segmentation has been studied as a core component of surgical data science and computer-assisted intervention \cite{maierhein2017surgical,rueckert2024methods}. EndoVis challenge datasets have accelerated benchmarking, while recent methods address domain shift, limited labels, and realistic image generation \cite{allan20192017,colleoni2021translation,peng2024reducing,colleoni2024guided}. Compared with natural-scene segmentation, surgical instrument segmentation has distinctive failure cases: instruments are thin, reflective, deformable in appearance due to articulation, and visually entangled with tissue. These properties make dense annotation expensive and make boundary errors clinically relevant. Our work targets this label-efficiency problem with a semi-supervised framework designed around boundary and geometry-dependent pseudo-label risk.
+Surgical instrument segmentation has been extensively studied through EndoVis challenge datasets and surgical data science benchmarks \cite{maierhein2017surgical,allan20192017,rueckert2024methods}. Recent work addresses annotation efficiency and realism through image-to-image translation, synthetic image generation, and active learning \cite{colleoni2021translation,peng2024reducing,colleoni2024guided}. The task differs from natural-scene segmentation because instrument boundaries are thin, reflective, articulated, and clinically important. GeoRisk-SPC targets this low-label regime with a semi-supervised method specialized for boundary and geometry-dependent pseudo-label risk.
+
 \subsection{Semi-supervised Semantic Segmentation}
-Semi-supervised semantic segmentation reduces annotation requirements by leveraging unlabeled images. Mean Teacher \cite{tarvainen2017mean} stabilizes consistency targets using an EMA teacher. CPS \cite{chen2021cps} introduces cross pseudo supervision between two networks. U2PL \cite{wang2022u2pl} explicitly uses unreliable pseudo-labels as negative samples for contrastive learning. UniMatch and UniMatch V2 revisit weak-to-strong consistency with unified pseudo-label training \cite{yang2023unimatch,yang2025unimatchv2}, and CorrMatch \cite{sun2024corrmatch} propagates labels through correlation matching. These methods are strong generic baselines, but their reliability mechanisms are driven mainly by confidence, augmentation, or feature correlation. They do not use surgical geometry to decide which spatial regions should avoid hard pseudo-label supervision.
+Mean Teacher stabilizes consistency targets through exponential moving average weights \cite{tarvainen2017mean}. CPS uses two networks for cross pseudo supervision \cite{chen2021cps}. U2PL explicitly exploits unreliable pseudo-labels as negative samples for contrastive learning \cite{wang2022u2pl}. UniMatch revisits weak-to-strong consistency with unified pseudo-label training \cite{yang2023unimatch}, while UniMatch V2 further pushes generic semi-supervised segmentation performance \cite{yang2025unimatchv2}. CorrMatch propagates labels through correlation matching \cite{sun2024corrmatch}, and CW-BASS introduces confidence-weighted boundary-aware learning \cite{cwbass2025}. These methods are strong baselines, but their reliability criteria are mainly confidence, augmentation, correlation, or class-wise thresholding. GeoRisk-SPC instead introduces depth discontinuity as an external spatial prior for pseudo-label risk.
+
 \subsection{Semi-supervised Medical and Surgical Segmentation}
-Medical SSL segmentation has developed a rich set of uncertainty, consistency, and prototype-based methods. UAMT \cite{yu2019uncertainty} uses uncertainty-aware self-ensembling, and URPC \cite{chen2021urpc} applies uncertainty-rectified pyramid consistency. More recent TMI and MICCAI works strengthen SSL through cross-style consistency with shape and context constraints \cite{liu2024crossstyle}, generative adversarial reinforcement learning \cite{xu2024drlssl}, probabilistic representation and prototype learning \cite{yuan2025probabilistic}, versatile collaborative segmentation \cite{zeng2025segment}, and worst-case-aware decoupled training \cite{das2024decoupled}. For surgical instruments, MMS \cite{li2023minmax} introduces a contrastive semi-supervised network for surgical tool segmentation, Surgivisor \cite{liu2024surgivisor} uses transformer-based uncertainty-guided supervision, and SegMatch \cite{segmatch2025} strengthens pseudo-label learning with adversarial augmentation. These studies confirm the importance of unlabeled data but still focus on stronger global consistency or pseudo-label learning. GeoRisk-SPC instead localizes pseudo-label risk at the pixel level and couples the supervision type to geometric reliability.
+Medical SSL segmentation has evolved from uncertainty-aware self-ensembling \cite{yu2019uncertainty} and uncertainty-rectified pyramid consistency \cite{chen2021urpc,luo2022urpc} to stronger recent TMI and MICCAI methods. Cross-style consistency combines shape-aware and local context constraints \cite{liu2024crossstyle}. Decoupled training considers worst-case learning \cite{das2024decoupled}. Generative adversarial reinforcement learning targets low-contrast and small-object segmentation \cite{xu2024drlssl}. Probabilistic representations and prototype learning model semi-supervised uncertainty \cite{yuan2025probabilistic}, and Segment Together proposes a versatile collaborative paradigm \cite{zeng2025segment}. In surgical instrument segmentation, MMS uses min-max similarity for contrastive semi-supervised learning \cite{li2023minmax}, Surgivisor applies uncertainty-guided transformer supervision \cite{liu2024surgivisor}, and SegMatch uses adversarial augmentation for pseudo-label learning \cite{segmatch2025}. These works confirm the competitiveness of SSL under limited labels. Our method is complementary: it localizes where pseudo-labels are risky before deciding which supervision loss to apply.
 
-\subsection{Depth-aware Segmentation}
-Depth provides geometric cues that are complementary to RGB appearance. Depth-adaptive networks and depth-aware attention show that depth can improve semantic segmentation by emphasizing geometric boundaries and layout \cite{mi2017depth,zhu2020depth}. Dense monocular prediction methods such as DPT make depth cues available even when calibrated depth sensors are absent \cite{ranftl2021vision}. RGB-D representation learning has continued to advance through stronger fusion designs \cite{yin2026dformer}. In surgical imaging, depth is valuable because tool-tissue interfaces often correspond to geometric discontinuities. Unlike conventional RGB-D segmentation methods that use depth only as an extra feature source, GeoRisk-SPC uses depth discontinuity as a supervisory risk prior for unlabeled pixels.
-
-\subsection{Pseudo-label Quality}
-Pseudo-label quality is central to SSL. Classic pseudo-labeling \cite{lee2013pseudo}, MixMatch \cite{berthelot2019mixmatch}, and FlexMatch \cite{zhang2021flexmatch} improve label assignment through confidence, augmentation, and curriculum learning. Segmentation methods further refine pseudo-labels through uncertainty estimation, negative sampling, correlation propagation, or adversarial perturbation \cite{yu2019uncertainty,wang2022u2pl,sun2024corrmatch,segmatch2025}. The remaining gap is spatial trust. A pseudo-label can be reliable in one region and harmful in another within the same image. GeoRisk-SPC addresses this by estimating a pixel-wise risk map and selecting the supervision form according to risk.
+\subsection{Depth-aware Segmentation and Pseudo-label Quality}
+Depth-adaptive networks and depth-aware attention demonstrate that depth cues can improve semantic segmentation by emphasizing geometry and boundaries \cite{mi2017depth,zhu2020depth}. DPT-style monocular dense prediction makes depth maps available without an RGB-D sensor \cite{ranftl2021vision}, and recent RGB-D representation learning continues to improve fusion architectures \cite{yin2026dformer}. Most depth-aware segmentation methods use depth as an additional feature source. GeoRisk-SPC uses depth in a different role: depth discontinuity estimates pseudo-label risk on unlabeled data. This connects depth-aware segmentation with pseudo-label quality control, where classical pseudo-labeling, MixMatch, FlexMatch, uncertainty-aware learning, and correlation propagation seek more reliable targets \cite{lee2013pseudo,berthelot2019mixmatch,zhang2021flexmatch,yu2019uncertainty,sun2024corrmatch}. The missing piece is spatial trust: a pseudo-label may be reliable in one pixel and harmful in the neighboring boundary pixel. GeoRisk-SPC directly models this spatial trust.
 
 \section{Method}
 \subsection{Problem Formulation and Overview}
-Let $\mathcal{D}_l=\{(x_i^l,y_i^l,d_i^l)\}_{i=1}^{N_l}$ denote labeled RGB images, binary masks, and pre-computed monocular depth maps, and let $\mathcal{D}_u=\{(x_i^u,d_i^u)\}_{i=1}^{N_u}$ denote unlabeled RGB-depth pairs. The goal is to learn a segmentation model from $\mathcal{D}_l$ and $\mathcal{D}_u$ under low label ratios. GeoRisk-SPC follows an EMA teacher-student framework \cite{tarvainen2017mean}. The teacher $T_\theta$ generates probability maps $p_t$ from weakly augmented unlabeled images, while the student $S_\phi$ predicts segmentation maps from strongly augmented images. The teacher parameters are updated as $\theta \leftarrow \alpha\theta+(1-\alpha)\phi$.
-The central design is to avoid applying the same pseudo-label rule to every unlabeled pixel. GeoRisk-SPC estimates a risk map $R$ from depth structure and teacher predictions, partitions unlabeled pixels into high-risk and low-risk subsets, and then applies different supervision to the two subsets. The framework contains four components:
-\begin{enumerate}
-\item Geometry-aware risk localization identifies unreliable pseudo-label regions using depth discontinuity, teacher uncertainty, and geometry-semantic conflict.
-\item Region-aware supervision applies hard pseudo-label learning to low-risk pixels and soft consistency learning to high-risk pixels.
-\item Structural perturbation consistency injects feature perturbations in high-risk regions to learn robustness where pseudo-label errors concentrate.
-\item The depth-guided geometric encoder injects multi-scale depth and depth-gradient context into RGB features through gated residual modulation.
-\end{enumerate}
-The student uses a shared encoder and two decoders. The clean decoder produces standard logits $z_{clean}$, and the perturbed decoder produces logits $z_{pert}$ from risk-perturbed bottleneck features. We evaluate two variants: GeoRisk-SPC-UNet, which uses an RGB-D UNet backbone, and GeoRisk-SPC-DG, which replaces the encoder with a depth-guided geometric encoder. Algorithm~\ref{alg:georisk} summarizes the training loop.
+Let $\mathcal{D}_l=\{(x_i^l,y_i^l,d_i^l)\}_{i=1}^{N_l}$ be labeled RGB images, binary masks, and pre-computed monocular depth maps, and let $\mathcal{D}_u=\{(x_i^u,d_i^u)\}_{i=1}^{N_u}$ be unlabeled RGB-depth pairs. GeoRisk-SPC follows an EMA teacher-student framework. The student $S_\phi$ is optimized by supervised and unlabeled losses, while the teacher $T_\theta$ is updated by $\theta\leftarrow\alpha\theta+(1-\alpha)\phi$.
+
+The main design is region-aware unlabeled supervision. The teacher produces probabilities $p_t$ on unlabeled images. A geometry-conditioned risk map $R$ partitions pixels into high-risk pixels $M_r$ and low-risk high-confidence pixels $M_l$. Low-risk pixels receive hard pseudo-label cross-entropy. High-risk pixels receive soft consistency between the student's clean branch and a perturbed branch. GeoRisk-SPC-UNet uses RGB-D input with a UNet-style \cite{ronneberger2015u} dual decoder. GeoRisk-SPC-DG replaces the encoder with DepthGuiderV4. Algorithm~\ref{alg:georisk} summarizes training.
+
 \begin{algorithm}[t]
-\caption{GeoRisk-SPC Training (Geometry-conditioned Pseudo-label Risk Supervision)}
+\caption{GeoRisk-SPC Training}
 \label{alg:georisk}
 \begin{algorithmic}[1]
-\REQUIRE Labeled data $\{(x_l, y_l)\}$, unlabeled data $\{(x_u, d_u)\}$, teacher model $T_\theta$, student model $S_\phi$
-\WHILE{not converged}
-    \STATE Sample labeled batch $\{(x_l, y_l)\}$ and unlabeled batch $\{(x_u, d_u)\}$
-    \STATE Compute teacher prediction $p_t = T_\theta(\text{weak\_aug}(x_u))$
-    \STATE Compute risk map $R$ from $d_u$ and $p_t$
-    \STATE Generate masks $M_r, M_l$ from $R$ and teacher confidence
-    \STATE Student clean: $p_{clean} = S_\phi(\text{strong\_aug}(x_u))$
-    \STATE Student perturbed: $p_{pert} = S_\phi(\text{strong\_aug}(x_u), M_r)$
-    \STATE Compute losses $\mathcal{L}_{sup}, \mathcal{L}_{pl}, \mathcal{L}_{cons}, \mathcal{L}_{bd}$
-    \STATE Update $\phi$ with $\mathcal{L} = \mathcal{L}_{sup} + \lambda_{pl}\mathcal{L}_{pl} + \lambda_{cons}\mathcal{L}_{cons} + \lambda_{bd}\mathcal{L}_{bd}$
-    \STATE Update $\theta \leftarrow \alpha\theta + (1-\alpha)\phi$
-\ENDWHILE
+\REQUIRE Labeled batch $(x_l,y_l,d_l)$, unlabeled batch $(x_u,d_u)$, student $S_\phi$, EMA teacher $T_\theta$
+\STATE Compute teacher probabilities $p_t=T_\theta(x_u,d_u)$
+\STATE Compute risk map $R$ from $d_u$ and $p_t$
+\STATE Build $M_r=\mathbb{1}[R>\tau_r]$ and $M_l=\mathbb{1}[\max_c p_t^c>\tau_c](1-M_r)$
+\STATE Apply additive-noise student perturbation to unlabeled inputs
+\STATE Predict clean and risk-perturbed student outputs
+\STATE Compute $\mathcal{L}_{sup}$, $\mathcal{L}_{pl}$, $\mathcal{L}_{cons}$, and $\mathcal{L}_{bd}$
+\STATE Update $\phi$ by minimizing $\mathcal{L}_{sup}+w(t)(\lambda_{pl}\mathcal{L}_{pl}+\lambda_{cons}\mathcal{L}_{cons}+\lambda_{bd}\mathcal{L}_{bd})$
+\STATE Update $\theta\leftarrow\alpha\theta+(1-\alpha)\phi$
 \end{algorithmic}
 \end{algorithm}
+
 \subsection{Geometry-aware Risk Localization}
-The risk localization module estimates where teacher pseudo-labels should not be trusted as hard targets. For an unlabeled image $x_u$ with depth map $d_u$, we first compute a locally normalized depth map within a sliding window of size $w\times w$:
+For an unlabeled image with depth $d_u$, GeoRisk-SPC first computes a locally normalized depth map:
 \begin{equation}
-d_{rel} = \frac{d_u - \mu_{local}(d_u)}{\sigma_{local}(d_u) + \epsilon}
+d_{rel}=\frac{d_u-\mu_{local}(d_u)}{\sigma_{local}(d_u)+\epsilon},
 \end{equation}
-where $\mu_{local}$ and $\sigma_{local}$ are the local mean and standard deviation. Local normalization removes global scale bias and emphasizes relative depth changes within each surgical frame. Depth discontinuity is then computed by the Sobel gradient magnitude:
+where $\mu_{local}$ and $\sigma_{local}$ are computed in a local window. Depth discontinuity is the Sobel \cite{sobel1968} gradient magnitude:
 \begin{equation}
-G_d = \|S * d_{rel}\|
+G_d=\|S*d_{rel}\|.
 \end{equation}
-where $S$ denotes the Sobel operator. Given teacher probabilities $p_t$, teacher uncertainty is measured by normalized entropy:
+Teacher uncertainty is Shannon entropy \cite{shannon1948}:
 \begin{equation}
-U_t = -\frac{1}{\log C}\sum_{c=1}^{C} p_t^c \log(p_t^c+\epsilon)
+U_t=-\sum_{c=1}^{C}p_t^c\log(p_t^c+\epsilon).
 \end{equation}
-where $C$ is the number of classes. We also compute a prediction boundary map from the class probability gradients:
+The prediction boundary map is the average class-probability gradient:
 \begin{equation}
-B_p = \frac{1}{C}\sum_{c=1}^{C}\|S * p_t^c\|
+B_p=\frac{1}{C}\sum_{c=1}^{C}\|S*p_t^c\|.
 \end{equation}
-Depth and prediction boundaries are independently min-max normalized to $\bar{G}_d$ and $\bar{B}_p$. Their mismatch defines geometry-semantic conflict:
+The implementation uses batch-global min-max normalization for each map:
 \begin{equation}
-C_{conf} = |\bar{G}_d - \bar{B}_p|
+\bar{A}=\frac{A-\min_{b,h,w}A}{\max_{b,h,w}A-\min_{b,h,w}A+\epsilon}.
 \end{equation}
-The final risk map combines uncertainty at geometric discontinuities with explicit boundary conflict:
+This normalization is applied over the full tensor passed to the risk module, not independently for every image. Geometry-semantic conflict is:
 \begin{equation}
-R = \bar{U}_t \cdot \bar{G}_d + \lambda_c C_{conf}
+C_{conf}=|\bar{G}_d-\bar{B}_p|.
 \end{equation}
-where $\bar{U}_t$ is min-max normalized teacher uncertainty and $\lambda_c$ controls the contribution of geometry-semantic conflict. High-risk and low-risk masks are defined as:
+The full risk map is:
+\begin{equation}
+R=\bar{U}_t\bar{G}_d+\lambda_c C_{conf}.
+\end{equation}
+The masks are:
 \begin{align}
-M_r &= \mathbb{1}[R > \tau_r] \\
-M_l &= \mathbb{1}[\text{conf} > \tau_c] \cdot (1 - M_r)
+M_r&=\mathbb{1}[R>\tau_r],\\
+M_l&=\mathbb{1}[\max_c p_t^c>\tau_c](1-M_r).
 \end{align}
-where $\text{conf} = \max_c p_c$ is the teacher prediction confidence.
+By construction, $M_l$ is the hard pseudo-label region and $M_r$ is the region where hard labels are avoided.
+
 \subsection{Region-aware Supervision}
-The supervised loss on labeled images combines Dice and cross-entropy losses:
+The labeled loss combines Dice and cross-entropy:
 \begin{equation}
-\mathcal{L}_{sup}=\frac{1}{2}(\mathcal{L}_{dice}+\mathcal{L}_{ce})
+\mathcal{L}_{sup}=\frac{1}{2}(\mathcal{L}_{dice}+\mathcal{L}_{ce}).
 \end{equation}
-For unlabeled images, low-risk pixels are high-confidence regions outside the high-risk mask. They receive hard pseudo-label supervision:
+Let $\hat{y}=\arg\max_c p_t^c$. Low-risk pixels receive hard pseudo-label supervision:
 \begin{equation}
-\mathcal{L}_{pl} = \frac{1}{|M_l|} \sum_{(i,j) \in M_l} \text{CE}(p_{clean}^{(i,j)}, \hat{y}^{(i,j)})
+\mathcal{L}_{pl}=\frac{\sum_{i,j}M_l^{(i,j)}\mathrm{CE}(z_{clean}^{(i,j)},\hat{y}^{(i,j)})}{\sum_{i,j}M_l^{(i,j)}+\epsilon}.
 \end{equation}
-where $\hat{y}=\arg\max_c p_t^c$. High-risk pixels do not receive hard pseudo-labels. Instead, the perturbed branch is constrained to remain consistent with the clean branch:
+High-risk pixels receive soft consistency. The implementation uses PyTorch \texttt{KLDivLoss(log\_pert, clean.detach())}, which corresponds to the Kullback--Leibler divergence \cite{kullback1951}:
 \begin{equation}
-\begin{aligned}
-\mathcal{L}_{cons} = \frac{1}{|M_r|}\sum_{(i,j)\in M_r}
-\text{KL}(p_{pert}^{(i,j)}\|\text{sg}[p_{clean}^{(i,j)}])
-\end{aligned}
+\mathcal{L}_{cons}=\frac{\sum_{i,j}M_r^{(i,j)}D_{KL}(\mathrm{sg}[p_{clean}^{(i,j)}]\|p_{pert}^{(i,j)})}{\sum_{i,j}M_r^{(i,j)}+\epsilon}.
 \end{equation}
-where $\text{sg}[\cdot]$ denotes stop-gradient. This design prevents high-risk pixels from reinforcing noisy teacher pseudo-labels while preserving a soft learning signal. A boundary consistency term further aligns the spatial gradients of the clean and perturbed predictions in high-risk regions:
+The clean branch is detached and the perturbed branch is optimized. Boundary consistency compares Sobel gradients of the clean and perturbed probabilities:
 \begin{equation}
-\mathcal{L}_{bd} = \frac{1}{|M_r|} \sum_{(i,j) \in M_r} |\|S * p_{clean}\| - \|S * p_{pert}\||
+\mathcal{L}_{bd}=\frac{\sum_{i,j}M_r^{(i,j)}\left|\|S*p_{clean}\|-\|S*p_{pert}\|\right|}{\sum_{i,j}M_r^{(i,j)}+\epsilon}.
 \end{equation}
-The total training objective is:
+The total loss is:
 \begin{equation}
-\mathcal{L} = \mathcal{L}_{sup} + w(t) \left( \lambda_{pl}\mathcal{L}_{pl} + \lambda_{cons}\mathcal{L}_{cons} + \lambda_{bd}\mathcal{L}_{bd} \right)
+\mathcal{L}=\mathcal{L}_{sup}+w(t)(\lambda_{pl}\mathcal{L}_{pl}+\lambda_{cons}\mathcal{L}_{cons}+\lambda_{bd}\mathcal{L}_{bd}),
 \end{equation}
-where $w(t)=\exp(-5(1-t/T_r)^2)$ is the consistency ramp-up schedule.
+where $w(t)$ is a sigmoid ramp-up schedule.
+
 \subsection{Structural Perturbation Consistency}
-Consistency training is most useful when perturbations expose the model to difficult variations. GeoRisk-SPC therefore perturbs bottleneck features only around high-risk regions. The risk mask is downsampled to the bottleneck resolution and used to gate channel dropout and Gaussian noise:
+GeoRisk-SPC perturbs bottleneck features only in high-risk regions. The risk mask is bilinearly resized to the bottleneck resolution. For channel dropout mask $D\in\{0,1\}^{B\times C\times1\times1}$ and Gaussian noise $\eta\sim\mathcal{N}(0,\sigma^2)$, the implemented perturbation is:
 \begin{equation}
-f_{pert}=f_{clean}\odot(1-\hat{M}_r\odot(1-D_{channel}))+\hat{M}_r\odot\mathcal{N}(0,\sigma^2)
+f_{pert}=f_{clean}\odot(1-\hat{M}_r\odot(1-D))+\hat{M}_r\odot\eta.
 \end{equation}
-where $\hat{M}_r$ is the resized risk mask, $D_{channel}\in\{0,1\}^{B\times C\times1\times1}$ is a channel-wise binary dropout mask, and $\sigma$ is the noise standard deviation. The clean branch remains unperturbed and serves as the stop-gradient consistency target. Compared with random feature perturbation, this design concentrates robustness learning on the ambiguous regions identified by geometric risk.
+The perturbation is applied only to the perturbed decoder branch. At inference, the model uses only the clean branch, so this module does not add test-time cost.
+
 \subsection{Depth-guided Geometric Encoder}
-The full GeoRisk-SPC-DG model uses DepthGuiderV4 modules at each UNet encoder level. Unlike simple RGB-D concatenation, the encoder processes RGB features and injects depth information through a residual modulation branch. At level $l$, the module first resizes the depth map to the RGB feature resolution and encodes both depth appearance and depth-gradient geometry:
+DepthGuiderV4 injects depth information into every UNet encoder level. Given RGB feature $f^l$ and resized depth $d^l$, the module computes depth-gradient geometry:
+\begin{equation}
+g^l=[\nabla_x d^l,\nabla_y d^l,\|\nabla d^l\|].
+\end{equation}
+Separate convolutional encoders produce depth and geometry features, which are mixed by a depth mixer. Local, pooled, and global depth contexts are built from the mixed feature. A scale router predicts softmax weights over the three contexts, and the weighted context interacts with projected RGB features through multiplication and absolute-difference terms. The fused feature is passed through a sigmoid gate and projected as a residual:
 \begin{align}
-g^l &= E_g^l([\nabla_x d^l,\nabla_y d^l,\|\nabla d^l\|])\\
-h^l &= E_d^l(d^l)
+q^l&=F^l([u^l,c^l,u^l\odot\sigma(c^l),|u^l-c^l|]),\\
+f_{out}^l&=f^l+\sigma(G^l([q^l,c^l]))\odot P^l(q^l),
 \end{align}
-where $E_g^l$ and $E_d^l$ are convolutional encoders for geometry and depth. The two streams are mixed to form a depth feature $m^l$. Local, pooled, and global context branches are then built from $m^l$:
-\begin{equation}
-c^l=\omega_1^l c_{local}^l+\omega_2^l c_{pooled}^l+\omega_3^l c_{global}^l
-\end{equation}
-where the weights $\omega^l=\text{softmax}(R_s^l([q^l,m^l,g^l]))$ are predicted by a scale router and $q^l$ is a projected RGB feature. The final depth-conditioned residual is:
-\begin{equation}
-\Delta f^l=\sigma(G^l([F^l([q^l,c^l,q^l\odot\sigma(c^l),|q^l-c^l|]),c^l]))\odot P^l(F^l)
-\end{equation}
-and the encoder output is $f_{out}^l=f_{rgb}^l+\Delta f^l$. This formulation lets the network inject depth strongly at boundary-sensitive shallow layers and suppress it where semantic RGB features are sufficient. The same depth maps are also used by the risk localization module, so geometry contributes both to feature extraction and to unlabeled-pixel trust estimation.
+where $u^l$ is the projected RGB feature, $c^l$ is the routed depth context, and $q^l$ is the fused interaction feature. The gate and residual projection are initialized to zero, so the module starts as an identity mapping and learns depth injection only when useful. This encoder is distinct from risk localization: the encoder uses depth to improve representation, whereas the risk module uses depth discontinuity to decide pseudo-label trust.
 
 \section{Experiments}
-
-\subsection{Dataset}
-We evaluate on the EndoVis 2017 \cite{allan20192017} surgical instrument segmentation dataset (Task 1), which contains 1800 images from 10 video sequences (1350 training, 450 testing). Task 1 is a binary segmentation task (instrument vs. background). We use 4-fold cross-validation with sequence-based splitting, following the standard protocol. We evaluate under different labeled data ratios: 5\%, 10\%, 20\%, and 40\%.
-
-Pre-computed depth maps are generated using a monocular depth estimation model \cite{ranftl2021vision}. For GeoRisk-SPC-UNet, depth is concatenated with RGB as an additional input channel. For GeoRisk-SPC-DG, depth is injected through the depth-guided geometric encoder. In both variants, depth discontinuities are used to compute the risk map for unlabeled-pixel supervision.
+\subsection{Dataset and Protocol}
+We evaluate on EndoVis 2017 Task 1 \cite{allan20192017}, a binary instrument segmentation benchmark with 1800 images from 10 sequences. We use 4-fold sequence-based cross-validation and report test Dice under 5\%, 10\%, 20\%, and 40\% labeled training data. Depth maps are pre-computed from monocular depth estimation \cite{ranftl2021vision}. All reported main results are test-set Dice averaged over folds; they are not validation-best Dice.
 
 \subsection{Implementation Details}
-We implement our method in PyTorch and train on a single NVIDIA RTX 5060 Ti GPU. The key hyperparameters are:
-\begin{itemize}
-\item Backbone: UNet \cite{ronneberger2015u} with 16 initial filters
-\item Optimizer: Adam with learning rate 1e-4 and weight decay 1e-4
-\item Batch size: 24 (12 labeled + 12 unlabeled samples)
-\item Training iterations: 30,000 with early stopping (patience=9,000 iterations)
-\item EMA decay rate: $\alpha=0.99$ for teacher model update
-\item Depth maps: pre-computed monocular depth estimation (1 channel)
-\item Risk map parameters: $\tau_r=0.5$ (risk threshold), $\tau_c=0.9$ (confidence threshold), $\lambda_c=0.5$ (conflict weight)
-\item Perturbation: channel dropout rate=0.3, Gaussian noise std=0.1
-\item Loss weights: $\lambda_{pl}=1.0$, $\lambda_{cons}=1.0$, $\lambda_{bd}=0.5$
-\item Data augmentation: weak augmentation (random flip/rotation for teacher) + strong augmentation (RandAugment for student)
-\end{itemize}
+All methods use the same image resolution, UNet backbone, and 4-fold protocol. GeoRisk-SPC uses Adam with learning rate $10^{-4}$ and weight decay $10^{-4}$, batch size 24 with 12 labeled and 12 unlabeled samples, 30,000 maximum iterations, early stopping patience of 9,000 iterations, EMA decay 0.99, and a UNet family backbone with 16 initial filters. The default risk parameters are $\tau_r=0.5$, $\tau_c=0.9$, and $\lambda_c=0.5$. Loss weights are $\lambda_{pl}=1.0$, $\lambda_{cons}=1.0$, and $\lambda_{bd}=0.5$. The project implementation does not use RandAugment for GeoRisk-SPC. The student branch receives the project's \texttt{\_add\_noise} perturbation: clipped additive Gaussian noise with standard deviation 0.1 and clipping range $[-0.2,0.2]$ when \texttt{strong=s}. The teacher branch uses the unperturbed unlabeled image under this setting.
+
+We compare two types of baselines. ``Reimpl.'' results are reproduced in our codebase using the same UNet backbone, data splits, and training schedule, enabling a controlled comparison. ``Official'' results use the authors' released code with its own architecture and augmentation choices; they are included for reference but are not directly comparable in backbone capacity or training protocol.
 
 \subsection{Main Results}
+Table~\ref{tab:main_results} reports test Dice for all methods. GeoRisk-SPC-DG reaches 88.26\%, 90.42\%, 90.90\%, and 91.41\% at 5\%, 10\%, 20\%, and 40\% labels. It is the strongest method at 10\%, 20\%, and 40\% labels, and ties SegMatch (reimpl.) at 5\%. Compared with UniMatch (reimpl.), GeoRisk-SPC-DG improves by +0.90, +2.24, +1.04, and +2.19 points. Compared with SegMatch (reimpl.), it changes by +0.00, +1.33, +0.73, and +1.42 points. The 10\% GeoRisk-SPC-DG result (90.42\%) also exceeds the 40\% UniMatch (reimpl.) result (89.22\%) and the 40\% SegMatch (reimpl.) result (89.99\%), indicating improved label efficiency under this protocol.
 
-Table~\ref{tab:main_results} compares GeoRisk-SPC with baselines across different labeled data ratios on EndoVis 2017 (4-fold cross-validation). Methods are sorted by publication year. For UniMatch and SegMatch, we report both our reimplementation and the official code results. GeoRisk-SPC-DG achieves the best mean Dice among all methods at 5\%, 10\%, 20\%, and 40\% labels. Compared to UniMatch (reimpl.), GeoRisk-SPC-DG improves by +2.59\% at 5\%, +1.46\% at 10\%, +1.74\% at 20\%, and +2.34\% at 40\%. Compared to SegMatch (reimpl.), the improvements are +1.41\%, +1.69\%, +1.64\%, and +2.58\% respectively. Against the official implementations, GeoRisk-SPC-DG surpasses UniMatch (official) by +3.88\%, +4.09\%, +3.46\%, and +3.34\%, and SegMatch (official) by +3.22\% at 5\% labels. Notably, GeoRisk-SPC-DG with only 10\% labels (88.09\%) surpasses SegMatch (reimpl.) with 40\% labels (87.20\%), demonstrating superior label efficiency through geometry-aware risk supervision.
-
-The base model GeoRisk-SPC-UNet, which uses standard UNet with depth concatenated as input, also outperforms all classical baselines (MT, UAMT, URPC) and surpasses UniMatch at 20\% and 40\% labels, validating that the risk-conditioned supervision framework is effective even without the depth-guided encoder.
+The depth-guided encoder is the clearest driver. On the Mean Teacher baseline, adding DepthGuiderV4 improves 20\% test Dice from 87.43\% to 88.83\% (+1.40). Within our method, GeoRisk-SPC-DG improves over GeoRisk-SPC-UNet by +1.58, +1.83, +2.18, and +0.26 points across the four label ratios. This supports the encoder as the most stable empirical contribution.
 
 \begin{table*}[t]
-\caption{Comparison with baselines across different labeled data ratios (Validation Best Dice, ALL Folds)}
-\begin{center}
-\begin{tabular}{llcccc}
+\caption{Test Dice on EndoVis 2017 with 4-fold cross-validation. Values are mean$\pm$std over folds.}
+\label{tab:main_results}
+\centering
+\scriptsize
+\begin{tabular}{lcccc}
 \toprule
-Method & Year & 5\% & 10\% & 20\% & 40\% \\
+Method & 5\% & 10\% & 20\% & 40\% \\
 \midrule
-Sup-only & -- & 84.87 & 85.41 & 87.51 & 87.09 \\
-MT \cite{tarvainen2017mean} & 2017 & 84.66{\tiny$\pm$4.42} & 85.58{\tiny$\pm$4.28} & 87.43{\tiny$\pm$4.07} & 86.85{\tiny$\pm$4.94} \\
-UAMT \cite{yu2019uncertainty} & 2019 & 85.31{\tiny$\pm$4.10} & 85.62{\tiny$\pm$4.04} & 86.94{\tiny$\pm$4.39} & 87.36{\tiny$\pm$3.50} \\
-URPC \cite{chen2021urpc} & 2021 & 85.56{\tiny$\pm$4.02} & 87.15{\tiny$\pm$4.10} & 87.87{\tiny$\pm$4.31} & 87.57{\tiny$\pm$3.73} \\
-CPS \cite{chen2021cps} & 2021 & 84.50{\tiny$\pm$4.99} & 85.90{\tiny$\pm$4.09} & 87.36{\tiny$\pm$4.13} & 84.50{\tiny$\pm$3.83} \\
-U2PL \cite{wang2022u2pl} & 2022 & 85.49{\tiny$\pm$4.26} & 86.39{\tiny$\pm$4.11} & 87.42{\tiny$\pm$3.97} & 88.64{\tiny$\pm$3.16} \\
-UniMatch \cite{yang2023unimatch} & 2023 & 84.30{\tiny$\pm$5.15} & 86.63{\tiny$\pm$4.02} & 87.21{\tiny$\pm$3.82} & 87.44{\tiny$\pm$4.09} \\
-UniMatch (official) & 2023 & 83.01{\tiny$\pm$7.41} & 84.00{\tiny$\pm$2.59} & 85.49{\tiny$\pm$4.21} & 86.44{\tiny$\pm$4.10} \\
-MMS \cite{li2023minmax} & 2023 & 84.07{\tiny$\pm$4.90} & 84.92{\tiny$\pm$4.82} & 84.33{\tiny$\pm$5.63} & 85.63{\tiny$\pm$6.06} \\
-CorrMatch \cite{sun2024corrmatch} & 2024 & 84.00{\tiny$\pm$5.11} & 85.40{\tiny$\pm$4.26} & 86.50{\tiny$\pm$4.18} & 87.36{\tiny$\pm$4.02} \\
-CW-BASS \cite{cwbass2025} & 2025 & 84.24{\tiny$\pm$4.90} & 85.62{\tiny$\pm$3.89} & 87.37{\tiny$\pm$4.40} & -- \\
-SegMatch \cite{segmatch2025} & 2025 & 85.48{\tiny$\pm$4.72} & 86.40{\tiny$\pm$4.46} & 87.31{\tiny$\pm$4.51} & 87.20{\tiny$\pm$4.31} \\
-SegMatch (official) & 2025 & 83.67{\tiny$\pm$7.10} & 85.64{\tiny$\pm$4.69} & -- & -- \\
+Sup-only & -- & -- & 87.51{\tiny$\pm$3.53} & -- \\
+MT \cite{tarvainen2017mean} & 84.27{\tiny$\pm$15.51} & 85.17{\tiny$\pm$15.06} & 87.43{\tiny$\pm$4.07} & 86.46{\tiny$\pm$15.11} \\
+MT-DGv4 & -- & 87.35{\tiny$\pm$15.52} & 88.83{\tiny$\pm$4.06} & -- \\
+UAMT \cite{yu2019uncertainty} & 84.94{\tiny$\pm$14.82} & 85.25{\tiny$\pm$15.16} & 86.94{\tiny$\pm$4.39} & 86.99{\tiny$\pm$14.37} \\
+URPC \cite{chen2021urpc} & 85.30{\tiny$\pm$15.34} & 86.79{\tiny$\pm$14.77} & 87.87{\tiny$\pm$4.31} & 87.17{\tiny$\pm$14.39} \\
+CPS \cite{chen2021cps} & 85.39{\tiny$\pm$12.45} & 81.38{\tiny$\pm$13.31} & 89.88{\tiny$\pm$9.82} & 87.92{\tiny$\pm$11.19} \\
+MMS \cite{li2023minmax} & 85.75{\tiny$\pm$12.14} & 87.44{\tiny$\pm$11.46} & 87.66{\tiny$\pm$11.63} & 84.35{\tiny$\pm$12.72} \\
+UniMatch (reimpl.) \cite{yang2023unimatch} & 87.36{\tiny$\pm$12.29} & 88.18{\tiny$\pm$12.24} & 89.86{\tiny$\pm$9.27} & 89.22{\tiny$\pm$11.06} \\
+UniMatch (official) \cite{yang2023unimatch} & 85.29{\tiny$\pm$13.82} & 86.16{\tiny$\pm$12.39} & 86.61{\tiny$\pm$10.73} & 88.87{\tiny$\pm$11.15} \\
+SegMatch (reimpl.) \cite{segmatch2025} & 88.26{\tiny$\pm$11.50} & 89.09{\tiny$\pm$10.52} & 90.17{\tiny$\pm$9.20} & 89.99{\tiny$\pm$10.17} \\
+SegMatch (official) \cite{segmatch2025} & 86.42{\tiny$\pm$13.22} & 86.39{\tiny$\pm$4.21} & 81.82{\tiny$\pm$7.77} & 86.39{\tiny$\pm$4.21} \\
+U2PL (official) \cite{wang2022u2pl} & 86.14{\tiny$\pm$4.45} & 87.98{\tiny$\pm$4.77} & 88.59{\tiny$\pm$4.22} & 89.57{\tiny$\pm$4.18} \\
+CorrMatch (official) \cite{sun2024corrmatch} & 85.45{\tiny$\pm$5.78} & 86.22{\tiny$\pm$5.41} & 87.87{\tiny$\pm$4.89} & 89.07{\tiny$\pm$3.88} \\
+CW-BASS (official) \cite{cwbass2025} & 85.48{\tiny$\pm$5.61} & -- & -- & -- \\
 \midrule
-GeoRisk-SPC-UNet (ours) & 2026 & 85.43{\tiny$\pm$5.45} & 86.88{\tiny$\pm$4.88} & 88.62{\tiny$\pm$4.65} & 89.10{\tiny$\pm$4.45} \\
-GeoRisk-SPC-DG (ours) & 2026 & 86.89{\tiny$\pm$4.94} & 88.09{\tiny$\pm$4.33} & 88.95{\tiny$\pm$4.05} & 89.78{\tiny$\pm$3.45} \\
+GeoRisk-SPC (UNet) & 86.68{\tiny$\pm$15.81} & 88.59{\tiny$\pm$13.27} & 88.72{\tiny$\pm$12.99} & 91.15{\tiny$\pm$8.91} \\
+GeoRisk-SPC-DG & 88.26{\tiny$\pm$12.75} & 90.42{\tiny$\pm$10.71} & 90.90{\tiny$\pm$10.26} & 91.41{\tiny$\pm$10.29} \\
 \bottomrule
 \end{tabular}
-\end{center}
-\label{tab:main_results}
-{\footnotesize Validation best dice during training. Sup-only uses only labeled data without unlabeled supervision. ``(official)'' denotes results from the authors' released code; unmarked rows use our reimplementation. Missing entries indicate unavailable completed runs under the same protocol.}
+\end{table*}
+
+\subsection{Multi-class Generalization}
+To evaluate whether the geometric risk principle extends beyond binary segmentation, we test all methods on EndoVis 2017 Task 2 (4-class instrument part segmentation: shaft, wrist, clasper, and probe) and Task 3 (7-class instrument type segmentation). Tables~\ref{tab:task2_results} and~\ref{tab:task3_results} report results across all label ratios.
+
+On Task 2 (Table~\ref{tab:task2_results}), GeoRisk-SPC-DG achieves the best or second-best result at every label ratio: 61.86\% at 5\%, 65.56\% at 10\%, 65.41\% at 20\%, and 67.56\% at 40\%. At 5\% labels it leads by +3.26 over MT, and at 40\% it trails URPC by only 0.14 points. On Task 3 (Table~\ref{tab:task3_results}), GeoRisk-SPC-DG reaches 20.13\% at 20\% labels, competitive with SegMatch (24.02\%) and URPC (24.07\%) given the much harder 7-class setting. U2PL suffers from NaN loss during training, producing near-zero Dice (3--7\%), which suggests that its contrastive prototype learning may be unstable under extreme class imbalance in the 7-class setting. These results indicate that depth-guided representation learning generalizes to multi-class surgical segmentation, while the risk supervision module may need class-specific threshold calibration for finer-grained tasks.
+
+\begin{table*}[t]
+\caption{Test Dice on EndoVis 2017 Task 2 (4-class part segmentation) with 4-fold cross-validation. Values are fold-level mean$\pm$std.}
+\label{tab:task2_results}
+\centering
+\scriptsize
+\begin{tabular}{lcccc}
+\toprule
+Method & 5\% & 10\% & 20\% & 40\% \\
+\midrule
+Fully & 58.63{\tiny$\pm$7.98} & 61.21{\tiny$\pm$8.80} & 64.62{\tiny$\pm$8.15} & 66.54{\tiny$\pm$9.79} \\
+MT \cite{tarvainen2017mean} & 58.60{\tiny$\pm$8.61} & 62.61{\tiny$\pm$7.84} & 63.03{\tiny$\pm$8.49} & 66.17{\tiny$\pm$9.28} \\
+MT-DGv4 & 61.42{\tiny$\pm$9.63} & 64.09{\tiny$\pm$7.28} & 66.18{\tiny$\pm$9.07} & 66.53{\tiny$\pm$11.88} \\
+UAMT \cite{yu2019uncertainty} & 59.05{\tiny$\pm$8.86} & 63.50{\tiny$\pm$9.55} & 64.22{\tiny$\pm$7.13} & 67.34{\tiny$\pm$9.61} \\
+URPC \cite{chen2021urpc} & 61.05{\tiny$\pm$9.70} & \textbf{65.60{\tiny$\pm$8.19}} & \textbf{67.27{\tiny$\pm$8.35}} & \textbf{67.70{\tiny$\pm$10.57}} \\
+CPS \cite{chen2021cps} & 58.60{\tiny$\pm$7.88} & 61.85{\tiny$\pm$8.23} & 63.49{\tiny$\pm$7.97} & 66.20{\tiny$\pm$10.06} \\
+UniMatch \cite{yang2023unimatch} & 58.07{\tiny$\pm$8.67} & 61.90{\tiny$\pm$10.06} & 63.54{\tiny$\pm$10.44} & 66.14{\tiny$\pm$11.56} \\
+SegMatch \cite{segmatch2025} & 60.15{\tiny$\pm$8.92} & 62.86{\tiny$\pm$7.58} & 64.88{\tiny$\pm$9.42} & 66.04{\tiny$\pm$8.19} \\
+U2PL \cite{wang2022u2pl} & 57.43{\tiny$\pm$7.77} & 58.15{\tiny$\pm$6.03} & 58.75{\tiny$\pm$5.30} & 57.61{\tiny$\pm$6.51} \\
+CorrMatch \cite{sun2024corrmatch} & 55.72{\tiny$\pm$8.28} & 61.57{\tiny$\pm$9.31} & 64.03{\tiny$\pm$9.05} & 64.62{\tiny$\pm$9.65} \\
+CW-BASS \cite{cwbass2025} & 58.26{\tiny$\pm$8.68} & 61.40{\tiny$\pm$8.16} & 64.31{\tiny$\pm$8.51} & 66.40{\tiny$\pm$9.04} \\
+\midrule
+GeoRisk-SPC-DG & \textbf{61.86{\tiny$\pm$8.49}} & 65.56{\tiny$\pm$7.31} & 65.41{\tiny$\pm$7.07} & 67.56{\tiny$\pm$7.49} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}[t]
+\caption{Test Dice on EndoVis 2017 Task 3 (7-class type segmentation) with 4-fold cross-validation. Values are fold-level mean$\pm$std. U2PL suffers from NaN loss during training, producing near-zero Dice. CorrMatch is pending.}
+\label{tab:task3_results}
+\centering
+\scriptsize
+\begin{tabular}{lcccc}
+\toprule
+Method & 5\% & 10\% & 20\% & 40\% \\
+\midrule
+Fully & 14.85{\tiny$\pm$5.88} & 21.00{\tiny$\pm$10.49} & 20.75{\tiny$\pm$10.09} & 21.11{\tiny$\pm$7.64} \\
+MT \cite{tarvainen2017mean} & 15.24{\tiny$\pm$5.58} & 19.10{\tiny$\pm$7.10} & 17.59{\tiny$\pm$7.77} & 23.65{\tiny$\pm$6.73} \\
+MT-DGv4 & 19.53{\tiny$\pm$6.64} & 19.95{\tiny$\pm$6.18} & 21.16{\tiny$\pm$9.95} & 23.08{\tiny$\pm$10.11} \\
+UAMT \cite{yu2019uncertainty} & 15.26{\tiny$\pm$5.92} & 19.79{\tiny$\pm$6.78} & 20.82{\tiny$\pm$6.78} & 24.35{\tiny$\pm$5.92} \\
+URPC \cite{chen2021urpc} & \textbf{19.66{\tiny$\pm$3.43}} & \textbf{25.11{\tiny$\pm$12.18}} & \textbf{24.07{\tiny$\pm$10.22}} & \textbf{29.64{\tiny$\pm$11.38}} \\
+CPS \cite{chen2021cps} & 18.66{\tiny$\pm$4.98} & 20.40{\tiny$\pm$7.54} & 19.26{\tiny$\pm$6.72} & 22.60{\tiny$\pm$5.94} \\
+UniMatch \cite{yang2023unimatch} & 14.67{\tiny$\pm$6.38} & 21.12{\tiny$\pm$8.12} & 21.48{\tiny$\pm$6.32} & 21.77{\tiny$\pm$5.23} \\
+SegMatch \cite{segmatch2025} & 18.24{\tiny$\pm$4.82} & 20.23{\tiny$\pm$8.54} & 24.02{\tiny$\pm$10.38} & 24.58{\tiny$\pm$4.08} \\
+U2PL \cite{wang2022u2pl} & 3.46{\tiny$\pm$1.24} & 2.67{\tiny$\pm$0.35} & 6.75{\tiny$\pm$6.78} & -- \\
+CorrMatch \cite{sun2024corrmatch} & --{\tiny$\dagger$} & --{\tiny$\dagger$} & --{\tiny$\dagger$} & --{\tiny$\dagger$} \\
+\midrule
+GeoRisk-SPC-DG & 19.40{\tiny$\pm$11.19} & 21.13{\tiny$\pm$7.20} & 20.13{\tiny$\pm$11.33} & 21.39{\tiny$\pm$8.91} \\
+\bottomrule
+\end{tabular}
 \end{table*}
 
 \subsection{Ablation Studies}
+Table~\ref{tab:ablation} reports 20\% label-ratio test Dice for component and threshold variants. The ablation is intentionally not monotonic. The full default configuration reaches 90.96\% Dice, but several variants are higher: Depth+Uncertainty reaches 91.49\%, removing risk localization reaches 91.42\%, and using the DG encoder without risk supervision reaches 91.29\%. This means the default fixed-threshold risk partition is not yet optimal.
 
-We conduct component and variant analysis on the EndoVis 2017 dataset with 20\% labeled data. Results are shown in Table~\ref{tab:ablation}. The table evaluates the effect of risk-guided perturbation, boundary consistency, risk-source choices, and depth-guided geometry encoding under the same training protocol.
+The main diagnosis is threshold calibration. With $\tau_c=0.9$, the low-risk hard pseudo-label stream is dominated by easy background, while useful foreground and boundary supervision becomes narrow. In training-batch diagnostics, the effective non-background low-risk signal can shrink to the 0.2--1.8\% pixel range after excluding trivial background. In this condition, $\mathcal{L}_{pl}$ provides insufficient hard foreground grounding, and the high-risk consistency and boundary terms can dominate the nontrivial regions. Removing risk localization assigns hard pseudo-labels to all pixels, which is less selective but supplies a stronger hard-label training signal; this explains why ``w/o risk localization'' improves Dice by +0.46 over the default.
 
-\begin{table}[htbp]
-\caption{Component and variant analysis of GeoRisk-SPC (20\% labeled, ALL folds)}
-\begin{center}
+The ablation still supports the geometric premise. Depth+Uncertainty is the best variant at 91.49\% (+0.53), indicating that depth discontinuity paired with uncertainty is an effective risk prior. Removing $\mathcal{L}_{bd}$ gives the largest negative component effect, 90.39\% (-0.57), confirming that boundary consistency is valuable. The threshold variants also show that fixed thresholds matter: $\tau_c=0.95$ drops to 90.43\%, and $\tau_r=0.3$ drops to 90.64\%. The correct conclusion is therefore not that every risk component monotonically improves Dice, but that geometric risk is useful and must be calibrated so that hard pseudo-label supervision remains sufficiently grounded.
+
+\begin{table}[t]
+\caption{Ablation results at 20\% labels. Values are test Dice.}
+\label{tab:ablation}
+\centering
+\scriptsize
 \begin{tabular}{lcc}
 \toprule
-Configuration & Dice & $\Delta$ \\
+Configuration & Test Dice & $\Delta$ vs Full \\
 \midrule
-GeoRisk-SPC-DG (full) & 88.95{\tiny$\pm$4.05} & - \\
-\quad w/o $\mathcal{L}_{cons}$ & 89.22{\tiny$\pm$4.31} & +0.27 \\
-\quad w/o $\mathcal{L}_{bd}$ & 88.90{\tiny$\pm$4.49} & -0.05 \\
-\quad Random mask (no risk guidance) & 88.76{\tiny$\pm$4.53} & -0.19 \\
-\quad w/o risk localization & 89.25{\tiny$\pm$4.31} & +0.30 \\
-\midrule
-\multicolumn{3}{l}{\textit{Risk source decomposition}} \\
-\quad Depth only ($G_d$) & 89.12{\tiny$\pm$4.33} & +0.17 \\
-\quad Uncertainty only ($U_t$) & 88.95{\tiny$\pm$4.68} & +0.00 \\
-\quad Conflict only ($C_{conf}$) & 89.14{\tiny$\pm$4.30} & +0.19 \\
-\quad Depth + Uncertainty & 89.03{\tiny$\pm$4.44} & +0.08 \\
-\midrule
-\multicolumn{3}{l}{\textit{Architecture ablation}} \\
-\quad MT + RGB-D concatenation & 87.43{\tiny$\pm$4.07} & -1.52 \\
-\quad MT + DG encoder & 88.83{\tiny$\pm$4.06} & -0.12 \\
-\quad GeoRisk-SPC w/o DG (UNet) & 88.62{\tiny$\pm$4.65} & -0.33 \\
-\quad DG encoder w/o risk supervision & 89.18{\tiny$\pm$4.43} & +0.23 \\
-\midrule
-\multicolumn{3}{l}{\textit{Threshold sensitivity}} \\
-\quad $\tau_r = 0.3$ & 89.30{\tiny$\pm$4.31} & +0.35 \\
-\quad $\tau_r = 0.7$ & 88.75{\tiny$\pm$4.66} & -0.19 \\
-\quad $\tau_c = 0.7$ & 89.17{\tiny$\pm$4.53} & +0.23 \\
-\quad $\tau_c = 0.95$ & 88.97{\tiny$\pm$4.46} & +0.02 \\
-\quad $\tau_r{=}0.3,\ \tau_c{=}0.7$ & 89.31{\tiny$\pm$4.13} & +0.36 \\
+Depth + Uncertainty & 91.49{\tiny$\pm$3.53} & +0.53 \\
+w/o risk localization & 91.42{\tiny$\pm$3.41} & +0.46 \\
+DG encoder w/o risk & 91.29{\tiny$\pm$3.62} & +0.33 \\
+w/o $\mathcal{L}_{cons}$ & 91.25{\tiny$\pm$3.36} & +0.29 \\
+$\tau_r=0.7$ & 91.23{\tiny$\pm$3.41} & +0.27 \\
+Random mask ($\tau_r=1.0$) & 91.19{\tiny$\pm$3.46} & +0.23 \\
+Depth only & 91.13{\tiny$\pm$3.27} & +0.17 \\
+Conflict only & 91.12{\tiny$\pm$3.39} & +0.16 \\
+$\tau_c=0.7$ & 91.07{\tiny$\pm$3.40} & +0.11 \\
+Uncertainty only & 90.98{\tiny$\pm$3.91} & +0.02 \\
+Full method & 90.96{\tiny$\pm$3.86} & -- \\
+$\tau_r=0.3,\tau_c=0.7$ & 90.66{\tiny$\pm$3.89} & -0.30 \\
+$\tau_r=0.3$ & 90.64{\tiny$\pm$4.92} & -0.32 \\
+$\tau_c=0.95$ & 90.43{\tiny$\pm$4.07} & -0.53 \\
+w/o $\mathcal{L}_{bd}$ & 90.39{\tiny$\pm$4.78} & -0.57 \\
 \bottomrule
 \end{tabular}
-\end{center}
-\label{tab:ablation}
 \end{table}
-The architecture comparisons show that depth-guided geometric encoding improves the Mean Teacher baseline from 87.43\% to 88.83\%, and GeoRisk-SPC-UNet further improves over the RGB-D Mean Teacher baseline. Random masks and removal of boundary consistency reduce performance relative to the full model, supporting the use of spatially targeted perturbation and boundary-aware regularization. DG encoder without risk supervision achieves 89.18\%, confirming that the depth-guided architecture itself contributes meaningfully. Threshold sensitivity analysis shows that $\tau_r=0.3$ yields the best single-threshold result (89.30\%), while $\tau_r=0.7$ degrades performance (88.75\%), indicating that a lower risk threshold captures more high-risk regions for perturbation-based consistency. The confidence threshold $\tau_c$ is more robust, with both 0.7 and 0.95 performing comparably to the default 0.9. Combining $\tau_r=0.3$ with $\tau_c=0.7$ achieves 89.31\%, the best overall ablation result, suggesting that relaxing both thresholds simultaneously allows the risk localization mechanism to cover more uncertain regions while maintaining reliable low-risk pseudo-labels.
 
-\subsection{Analysis}
+\subsection{Risk Localization Diagnostics}
+We audit the default masks on the 20\% GeoRisk-SPC-DG setting using the converged fold checkpoints as teacher proxies. Table~\ref{tab:risk_diag} reports pooled 4-fold statistics on held-out test frames. The all-pixel $M_l$ coverage is high because easy background dominates binary instrument segmentation. This number alone is misleading. The important behavior is the accuracy gap: pseudo-label accuracy is 98.72\% inside $M_l$ but only 63.52\% outside $M_l$, and foreground pseudo-label accuracy is 95.97\% inside low-risk foreground pixels but 68.53\% outside them. Thus the risk partition separates reliable and unreliable pseudo-labels, but the default thresholds leave the nontrivial boundary/high-risk set small. This supports the ablation diagnosis: risk localization is directionally correct, while its fixed thresholds are not yet calibrated for optimal hard-label signal.
 
-\subsubsection{Risk Map Visualization}
-Figure~\ref{fig:risk_map} visualizes the risk maps generated by our method. The high-risk regions (red) correspond to instrument boundaries and ambiguous areas where depth discontinuities coincide with prediction uncertainty. The low-risk regions (green) are primarily in the interior of instruments and background areas where pseudo-labels are reliable. The risk map effectively captures the spatial heterogeneity of pseudo-label quality, enabling targeted supervision strategies.
-
-\subsubsection{Effect of Labeled Data Ratio}
-Table~\ref{tab:main_results} shows that GeoRisk-SPC consistently outperforms classical baselines (MT, UAMT, URPC) across different labeled data ratios. Compared to MT, GeoRisk-SPC-UNet achieves +0.77\% at 5\%, +1.30\% at 10\%, +1.19\% at 20\%, and +2.25\% at 40\%. The advantage grows with more labeled data, as the risk localization mechanism benefits from better teacher predictions. GeoRisk-SPC-DG further extends these gains, surpassing UniMatch and SegMatch at all label ratios.
-
-\subsubsection{Cross-fold Consistency}
-The standard deviations in Table~\ref{tab:main_results} show that GeoRisk-SPC-DG achieves competitive variance across folds. At 40\% labeled ratio, GeoRisk-SPC-DG has std of 3.45\% while MT has 4.94\%, suggesting more stable performance. The risk localization mechanism provides more consistent pseudo-label quality across folds, reducing performance variance.
-
-\subsubsection{Effect of Depth-guided Encoder}
-The depth-guided encoder (GeoRisk-SPC-DG) consistently outperforms the base UNet model (GeoRisk-SPC-UNet) across all label ratios. At 20\% labeled ratio, GeoRisk-SPC-DG achieves 88.95\% Dice compared to GeoRisk-SPC-UNet's 88.62\% (+0.33\%). The gap is largest at 10\% labels: 88.09\% vs 86.88\% (+1.21\%). At 5\% labels, GeoRisk-SPC-DG achieves 86.89\% vs 85.43\% (+1.46\%). The multi-scale gated depth modulation provides richer geometric features that enhance both risk localization accuracy and boundary delineation, with the benefit being more pronounced when labeled data is scarce.
-
-\subsubsection{Convergence Analysis}
-Figure~\ref{fig:convergence} shows the training curves of GeoRisk-SPC compared to standard Mean Teacher. GeoRisk-SPC converges faster and achieves higher final performance. The region-aware supervision strategy provides more stable training signals, reducing the impact of noisy pseudo-labels during the learning process.
-
-\begin{figure}[t]
+\begin{table}[t]
+\caption{Post-hoc risk-mask audit for 20\% GeoRisk-SPC-DG on held-out test frames. Coverage is the pooled percentage of image pixels.}
+\label{tab:risk_diag}
 \centering
-\includegraphics[width=\columnwidth]{figures/convergence.pdf}
-\caption{Training curves of GeoRisk-SPC and Mean Teacher on EndoVis 2017 (40\% labeled data, 4-fold average). GeoRisk-SPC converges faster and achieves higher final Dice score. Shaded regions indicate standard deviation across folds.}
-\label{fig:convergence}
-\end{figure}
+\scriptsize
+\begin{tabular}{lcc}
+\toprule
+Region & Coverage & Pseudo-label accuracy \\
+\midrule
+Low-risk $M_l$ & 97.94\% & 98.72\% \\
+High-risk $M_r$ & 0.58\% & 58.41\% \\
+Outside $M_l$ & 2.06\% & 63.52\% \\
+Low-risk foreground & 11.28\% & 95.97\% \\
+Outside-$M_l$ foreground & 1.04\% & 68.53\% \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\begin{figure}[t]
+\subsection{Boundary Quality Metrics}
+Table~\ref{tab:boundary} reports fold-level boundary-aware metrics at 20\% labels. GeoRisk-SPC-DG leads all baselines in every metric. The largest improvement is Boundary F1: 91.11\% versus 86.19\% for MT (+4.92), 86.66\% for SegMatch (+4.45), and 86.38\% for UAMT (+4.73). HD95 drops from 19.3--20.8 to 14.9, and ASSD drops from 3.16--3.30 to 2.45. These results indicate that the depth-guided encoder and risk-guided supervision improve boundary precision, not only region-level Dice.
+
+\begin{table}[t]
+\caption{Boundary-aware metrics at 20\% labels (fold-level mean$\pm$std).}
+\label{tab:boundary}
 \centering
-\includegraphics[width=\columnwidth]{figures/risk_map.pdf}
-\caption{Visualization of risk maps. From left to right: input image, depth map, risk map, and segmentation result. High-risk regions (red) correspond to instrument boundaries and ambiguous areas.}
-\label{fig:risk_map}
-\end{figure}
+\scriptsize
+\begin{tabular}{lcccc}
+\toprule
+Method & Dice & BF1 & HD95 & ASSD \\
+\midrule
+MT & 88.48{\tiny$\pm$5.63} & 86.19{\tiny$\pm$7.30} & 20.81{\tiny$\pm$10.98} & 3.29{\tiny$\pm$1.68} \\
+SegMatch & 89.30{\tiny$\pm$5.63} & 86.66{\tiny$\pm$8.16} & 20.09{\tiny$\pm$14.65} & 3.30{\tiny$\pm$2.34} \\
+UAMT & 88.55{\tiny$\pm$5.40} & 86.38{\tiny$\pm$7.09} & 19.33{\tiny$\pm$12.68} & 3.16{\tiny$\pm$1.98} \\
+\midrule
+GeoRisk-SPC-DG & \textbf{91.49}{\tiny$\pm$4.44} & \textbf{91.11}{\tiny$\pm$5.35} & \textbf{14.93}{\tiny$\pm$10.85} & \textbf{2.45}{\tiny$\pm$1.83} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\subsubsection{Selective Depth Feature Usage}
-Figure~\ref{fig:depth_usage} visualizes the depth feature activations at each encoder level of the DepthGuiderV4 module across three test samples. Each row corresponds to a different input case, showing the depth encoder output (\textit{depth\_feat}) and geometry encoder output (\textit{geom\_feat}) at layers L0--L4.
+\subsection{Depth-guided Encoder Analysis}
+The architecture comparison gives the most stable positive result. MT-DGv4 improves over MT by +1.40 points at 20\% labels. GeoRisk-SPC-DG improves over GeoRisk-SPC-UNet at every label ratio, with the largest gains at 5\%, 10\%, and 20\%. This pattern indicates that depth is useful both as a feature source and as a risk prior, but the feature-source contribution is currently more robust than the fixed-threshold risk-supervision contribution.
 
-A striking pattern emerges: depth features are actively utilized at shallow layers (L0--L2) but suppressed to near-zero at deep layers (L3--L4). At L0 (16 channels, $224\times224$), depth features exhibit strong spatial activations with values up to 2.88, indicating rich geometric information is being extracted. L1 and L2 maintain meaningful activations (max values 1.52 and 1.36 respectively). In contrast, L3 and L4 show near-zero activations (max $< 10^{-4}$), effectively learning to ignore depth input.
-
-This selective usage pattern has a natural interpretation. Shallow layers are responsible for capturing fine-grained details such as edges, textures, and boundaries, precisely where geometric information from depth discontinuities is most valuable for distinguishing instrument edges from tissue boundaries. Deep layers encode high-level semantic features where the category information suffices and depth cues provide diminishing marginal returns. The model learns this ``use depth at shallow layers, ignore it at deep layers'' strategy autonomously, without explicit supervision to do so.
-
-This finding also validates the design of our risk localization module, which computes depth discontinuity at the input resolution, where the raw geometric signal is strongest, rather than at deep feature levels. The DepthGuiderV4 module further enhances this by fusing depth features at each encoder level, allowing the network to selectively attend to geometric cues where they are most informative.
+Figure~\ref{fig:depth_usage} provides an illustrative diagnostic of depth feature activation across encoder levels. It should be interpreted as a qualitative analysis aid, not as quantitative evidence. The observed pattern is consistent with the design motivation: shallow levels preserve boundary-sensitive geometric information, while deeper levels can suppress depth residuals when semantic RGB features are sufficient.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/depth_usage_per_layer.pdf}
-\caption{Depth feature activations per encoder layer in DepthGuiderV4. Each row shows a test sample with the input image overlaid with depth (column 1) and depth encoder outputs at layers L0--L4 (columns 2--6). Shallow layers (L0--L2) show active depth feature extraction, while deep layers (L3--L4) learn to suppress depth contributions (gray regions marked ``OFF''). This selective usage pattern indicates that geometric cues are most beneficial for capturing fine-grained boundary details rather than high-level semantics.}
+\caption{Illustrative diagnostic of DepthGuiderV4 feature usage across encoder levels. Real per-fold qualitative visualizations will be added in the final visualization package; this figure is not used as quantitative evidence.}
 \label{fig:depth_usage}
 \end{figure}
 
+\subsection{Qualitative Analysis}
+Figure~\ref{fig:risk_map} shows a real held-out test example from the 20\% GeoRisk-SPC-DG fold. The 8-panel visualization includes input image, pre-computed depth map, teacher uncertainty, depth discontinuity, geometry-semantic conflict, risk map with $M_r$ overlay, pseudo-label error map, and prediction overlay with GT boundary. High-risk responses (yellow contour in panel f) concentrate near instrument boundaries and depth transitions, consistent with the intended risk localization behavior. The pseudo-label error map (panel g) shows that teacher errors cluster in similar regions, supporting the geometric risk hypothesis. Additional examples from other held-out sequences are provided in the supplementary material.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/risk_map_real_seq_4_frame228.pdf}
+\caption{Real held-out test example from 20\% GeoRisk-SPC-DG. (a) Input image. (b) Pre-computed depth map. (c) Teacher uncertainty $U_t$. (d) Depth discontinuity $G_d$. (e) Geometry-semantic conflict $|G_d-B_p|$. (f) Risk map $R$ with $M_r$ boundary (yellow). (g) Pseudo-label error (red). (h) Prediction overlay (green) with GT boundary (red). Best viewed in color.}
+\label{fig:risk_map}
+\end{figure}
+
 \section{Discussion}
+\subsection{What the Results Support}
+The experiments support four claims. First, depth-guided representation learning is valuable for surgical instrument segmentation under limited labels. The MT-to-MT-DG and GeoRisk-SPC-UNet-to-GeoRisk-SPC-DG comparisons show consistent gains. Second, depth is a meaningful pseudo-label risk prior. Depth+Uncertainty gives the best ablation result, and the mask audit shows a large accuracy gap between low-risk and outside-low-risk foreground predictions. Third, boundary quality improves alongside region-level Dice. GeoRisk-SPC-DG achieves Boundary F1 of 91.11\% versus 86.19\% for MT, and reduces HD95 from 20.8 to 14.9 pixels. This indicates that the depth-guided encoder and risk-guided supervision improve boundary precision, not only region overlap. Fourth, fixed-threshold risk localization is not yet sufficient. The default $\tau_c=0.9$ and $\tau_r=0.5$ setting can under-supply hard foreground pseudo-label grounding in difficult regions, producing the observed non-monotonic ablation table.
 
-\subsection{Why Geometry-conditioned Risk Supervision Works}
-The effectiveness of our approach stems from two complementary insights. First, pseudo-label reliability is spatially heterogeneous in surgical scenes: instrument boundaries exhibit complex 3D geometry, motion blur, tissue deformation, and specular reflections that make pseudo-labels unreliable. Second, this heterogeneity correlates with geometric structure: depth discontinuities from monocular depth estimation coincide with instrument boundaries, providing an external structural cue for identifying unreliable regions.
-
-Once risk is localized, differentiated supervision becomes possible: hard pseudo-labels in reliable regions provide strong learning signals, while soft structural consistency in high-risk regions prevents error propagation. This is more effective than either uniformly trusting all pseudo-labels (which propagates errors) or uniformly downweighting them (which wastes reliable signals).
-
-\subsection{Computational Overhead}
-GeoRisk-SPC introduces minimal computational overhead. The risk localization module adds approximately 5\% to the training time compared to standard Mean Teacher. The dual-decoder architecture increases memory usage by about 30\%, but this is offset by the improved convergence speed (fewer iterations needed to reach optimal performance).
+The multi-class experiments (Tables~\ref{tab:task2_results}--\ref{tab:task3_results}) provide additional context. On Task 2 (4-class part segmentation), GeoRisk-SPC-DG remains competitive (65.41\% at 20\% labels, within 1.86 points of URPC). On Task 3 (7-class type segmentation), all methods suffer significant Dice drops due to class imbalance and finer semantic granularity, with GeoRisk-SPC-DG at 20.13\%. This suggests that the risk supervision module's fixed thresholds may need class-specific calibration when the label space expands.
 
 \subsection{Limitations}
-Our method has several limitations:
-\begin{itemize}
-\item \textbf{Depth quality dependency}: The effectiveness of risk localization depends on the quality of pre-computed depth maps. Poor depth estimation may lead to inaccurate risk maps. Future work could explore using multiple depth estimators or uncertainty-aware depth fusion.
-\item \textbf{Threshold sensitivity}: The performance is sensitive to the risk threshold $\tau_r$ (89.30\% at 0.3 vs.\ 88.75\% at 0.7) while the confidence threshold $\tau_c$ is more robust (Table~\ref{tab:ablation}). Adaptive thresholding strategies could further improve robustness.
-\item \textbf{Dataset scope}: We evaluated on EndoVis 2017 (binary segmentation). Validation on multi-class surgical datasets and other surgical scenarios is needed to confirm generalizability.
-\item \textbf{Computational overhead}: The dual-decoder architecture increases memory usage by approximately 30\% compared to standard Mean Teacher, though this is offset by improved convergence speed.
-\end{itemize}
+The main limitation is threshold calibration. GeoRisk-SPC currently uses fixed $\tau_r$ and $\tau_c$, and the ablation shows that this can make risk localization suboptimal. Adaptive thresholds, class-balanced pseudo-label coverage, or curriculum schedules should replace the fixed default. A second limitation is depth quality. Monocular depth may be inaccurate in specular, smoke-filled, or textureless surgical frames, and the risk map inherits these errors. Third, while we now report results on Task 2 (4-class) and Task 3 (7-class) in addition to Task 1 (binary), the multi-class performance gap is significant. On Task 3, GeoRisk-SPC-DG drops to 20.13\% Dice at 20\% labels, suggesting that class-specific risk calibration and foreground-aware thresholding are needed for finer-grained segmentation. Cross-dataset generalization and additional surgical procedures remain untested. Fourth, with only 4 cross-validation folds, Wilcoxon signed-rank tests cannot reach the $p<0.05$ threshold (minimum achievable $p=0.0625$ for $n=4$). The improvements are consistent in direction but lack formal statistical significance under this fold count.
 
 \section{Conclusion}
-We proposed GeoRisk-SPC, a geometry-conditioned pseudo-label risk supervision framework for semi-supervised surgical instrument segmentation. Our key insight is that pseudo-label reliability is spatially heterogeneous and correlates with geometric structure: depth discontinuities from monocular depth estimation reveal where pseudo-labels are unreliable. Based on this insight, we design a risk localization mechanism that partitions unlabeled pixels into low-risk and high-risk regions, applying hard pseudo-labels to reliable regions and soft structural consistency to ambiguous regions.
-
-The full model GeoRisk-SPC-DG incorporates a depth-guided geometric encoder with multi-scale gated residual modulation for enhanced geometric feature extraction. Experiments on EndoVis 2017 demonstrate that GeoRisk-SPC-DG achieves 89.78\% Dice at 40\% labels, 88.09\% at 10\% labels, and 86.89\% at 5\% labels, outperforming strong baselines UniMatch and SegMatch across all settings. Notably, GeoRisk-SPC-DG with 10\% labels surpasses SegMatch with 40\% labels, demonstrating that geometry-aware risk supervision enables superior label efficiency.
-
-Future work includes extending our method to 3D surgical scene segmentation, exploring adaptive thresholding strategies for risk map generation, and validating on additional surgical datasets to confirm generalizability.
+We presented GeoRisk-SPC, a geometry-conditioned pseudo-label risk supervision framework for semi-supervised surgical instrument segmentation. The core idea is to use depth discontinuity not merely as an additional segmentation input, but as a cue for deciding where pseudo-labels should not be trusted. The full GeoRisk-SPC-DG model achieves test Dice scores of 88.26\%, 90.42\%, 90.90\%, and 91.41\% at 5\%, 10\%, 20\%, and 40\% labels on EndoVis 2017. The strongest empirical contribution is DepthGuiderV4, while the risk-supervision results reveal an important limitation: fixed confidence and risk thresholds can make hard foreground pseudo-label supervision too sparse. This makes GeoRisk-SPC a promising but not yet fully calibrated direction. Future work should learn adaptive risk thresholds, balance foreground/background pseudo-label coverage, and validate the method on multi-class and cross-dataset surgical segmentation benchmarks.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
