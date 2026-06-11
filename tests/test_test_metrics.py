@@ -140,6 +140,52 @@ class TestInMemoryAggregation(unittest.TestCase):
         self.assertEqual(seq_output_rows[0]["name"], "task1_MT_10_labeled_lr3e-5_t_resnet_f0_seq1")
         self.assertEqual(all_folds_summary_rows, [dict(fold_output_rows[-1])])
 
+    def test_build_result_export_rows_keeps_case_names(self):
+        args = SimpleNamespace(
+            exp="toy/MT",
+            labeled_num=10,
+            optimizer="adam",
+            task=1,
+            root_path="/tmp/root",
+            lr=3e-5,
+            sampling="none",
+        )
+        context = SimpleNamespace(model_name="t_resnet", effective_lr=3e-5)
+        fold_rows = [
+            {"Fold": "ALL_Folds", "Seq": "", "Total_Samples": 1, "Valid_Samples": 1, "Avg_dice": "50.00 ± 0.00"},
+        ]
+        records = [
+            {"Fold": "f0", "Seq": 1, "Case": "case_1_a", "Class": 1, "Dice": 0.5, "IoU": 0.5, "TP": 1.0, "FP": 1.0, "FN": 1.0, "Acc": 0.75, "Valid": True},
+        ]
+
+        with patch.object(test_export, "get_dataset_result_dir_name", return_value="dataset"):
+            _, _, _, case_output_rows = test_export.build_result_export_rows(
+                args,
+                context,
+                fold_rows,
+                [],
+                {"f0": 0.82},
+                total_folds=1,
+                case_records=records,
+            )
+
+        self.assertEqual(case_output_rows[0]["Case"], "case_1_a")
+        self.assertEqual(case_output_rows[0]["name"], "task1_MT_10_labeled_lr3e-5_t_resnet_f0_case_1_a_c1")
+        self.assertEqual(case_output_rows[0]["train_best_dice"], "82.00")
+
+    def test_persist_result_tables_writes_case_summary_rows(self):
+        context = SimpleNamespace(dataset_result_path="/tmp/results", checkpoint_type="best")
+        fold_output_rows = [{"Fold": "f0", "Avg_dice": "50.00 ± 0.00"}, {"Fold": "ALL_Folds", "Avg_dice": "50.00 ± 0.00"}]
+
+        with patch.object(test_export, "append_csv_with_lock") as append_mock, \
+             patch.object(test_export.os, "makedirs"), \
+             patch.object(test_export.os.path, "exists", return_value=True):
+            paths = test_export.persist_result_tables(context, fold_output_rows, [], [{"Fold": "ALL_Folds"}], [])
+
+        self.assertEqual(paths[-1], "/tmp/results/all_experiments_results_case_summary_best.csv")
+        self.assertEqual(append_mock.call_args_list[1].args[1], "/tmp/results/all_experiments_results_case_summary_best.csv")
+        self.assertEqual(append_mock.call_args_list[1].args[0].to_dict(orient="records"), fold_output_rows)
+
     def test_summarize_records_counts_unique_cases_without_assuming_class_one_exists(self):
         records = [
             {"Fold": "f0", "Seq": 1, "Case": "case_1_a", "Class": 2, "Dice": 0.0, "IoU": 0.0, "TP": 0.0, "FP": 1.0, "FN": 1.0, "Acc": 0.5, "Valid": True},
@@ -190,6 +236,7 @@ class TestMainOutputs(unittest.TestCase):
              patch.object(test_core, "run_one_fold", return_value=(0.8, [{"Fold": "f0"}])), \
              patch.object(test_core, "build_fold_rows", return_value=fold_rows), \
              patch.object(test_core, "build_seq_rows", return_value=seq_rows), \
+             patch.object(test_core, "persist_result_tables", return_value=("/tmp/fold.csv", "/tmp/seq.csv", "/tmp/all.csv", "/tmp/case.csv", "/tmp/case_summary.csv")), \
              patch.object(test_core, "append_csv_with_lock"), \
              patch.object(test_core, "os") as os_mock, \
              patch.object(test_core.pd, "ExcelWriter") as excel_writer_mock:

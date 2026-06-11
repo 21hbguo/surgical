@@ -77,12 +77,6 @@ def create_dataloaders(args):
             depth_channels=depth_channels,
         ),
     )
-    if len(train_dataset) == 0:
-        raise RuntimeError(
-            "Training dataset is empty. "
-            f"root_path={args.root_path}, fold={args.fold}, task={args.task}. "
-            "Expected one of train_slices*.list or train.list under root_path."
-        )
 
     val_dataset = None
     if not args.no_val:
@@ -131,16 +125,6 @@ def create_dataloaders(args):
     unlabeled_indices = [index for index in range(len(train_dataset)) if index not in labeled_set]
 
     if args.is_semi_supervised:
-        if not labeled_indices:
-            raise ValueError(
-                "Semi-supervised training requires at least one labeled sample. "
-                "Increase --labeled_num or reduce the dataset split."
-            )
-        if not unlabeled_indices:
-            raise ValueError(
-                "Semi-supervised training requires at least one unlabeled sample. "
-                "Reduce --labeled_num or switch to a fully supervised strategy."
-            )
         labeled_indices = repeat_to_min_length(labeled_indices, args.labeled_bs)
         unlabeled_indices = repeat_to_min_length(unlabeled_indices, args.unlabeled_bs)
         batch_sampler = TwoStreamBatchSampler(
@@ -151,11 +135,6 @@ def create_dataloaders(args):
             seed=args.seed,
         )
     else:
-        if not labeled_indices:
-            raise ValueError(
-                "Training requires at least one labeled sample. "
-                "Increase --labeled_num or check the dataset split files."
-            )
         labeled_indices = repeat_to_min_length(labeled_indices, args.labeled_bs)
         batch_sampler = OneStreamBatchSampler(
             labeled_indices,
@@ -289,11 +268,6 @@ class Trainer:
         if self.patience > 0:
             self.logger.info("Early stopping enabled: patience=%d iterations (%.0f%% of max)", self.patience, self.args.early_stopping * 100)
         try:
-            if len(self.train_loader) == 0:
-                raise RuntimeError(
-                    "Training loader produced zero batches. "
-                    "Check --labeled_num, batch sizes, and dataset split files."
-                )
             self.max_epoch = self.max_iterations // len(self.train_loader) + 1
             self.pbar = tqdm(total=self.max_epoch, ncols=70)
             for epoch in range(self.max_epoch):
@@ -379,8 +353,6 @@ class Trainer:
                         depth_target = batch_data.get("depth3")
                         if depth_target is None:
                             depth_target = batch_data.get("depth1")
-                        if depth_target is None:
-                            raise KeyError("Validation for fully_depth_pretrain_v1 requires depth3 or depth1 in batch_data")
                         metrics = compute_depth_psnr_ssim(val_output, depth_target)
                         metric_list.append(metrics)
                     else:
@@ -514,7 +486,7 @@ def main():
             if run_args.val_iter > 0:
                 logger.info("--val_iter ignored because --no_val is enabled")
 
-        logger.info("Using Adam: LR=%s, WD=0.0001, betas=(0.9, 0.99)", run_args.lr)
+        logger.info("Using Adam: LR=%s", run_args.lr)
         components = build_train_components(run_args, device, logger)
         total_slices = len(components.train_loader.dataset)
         logger.info(

@@ -170,7 +170,7 @@ def _build_named_result_row(args, model_name, dataset_name, experiment_name, row
     return export_row
 
 
-def build_result_export_rows(args, context, fold_rows, seq_rows, train_best_by_fold, total_folds: int):
+def build_result_export_rows(args, context, fold_rows, seq_rows, train_best_by_fold, total_folds: int, case_records=None):
     dataset_name = get_dataset_result_dir_name(
         args.exp,
         args.root_path,
@@ -207,10 +207,24 @@ def build_result_export_rows(args, context, fold_rows, seq_rows, train_best_by_f
         )
         for row in seq_rows
     ]
-    return fold_output_rows, seq_output_rows, [dict(fold_output_rows[-1])]
+    if case_records is None:
+        return fold_output_rows, seq_output_rows, [dict(fold_output_rows[-1])]
+    case_output_rows = [
+        _build_named_result_row(
+            args,
+            context.model_name,
+            dataset_name,
+            experiment_name,
+            record,
+            suffix=f"{record.get('Fold', '')}_{record.get('Case', '')}_c{record.get('Class', '')}",
+            train_best_dice=_format_train_best_metric(record.get("Fold", ""), train_best_by_fold),
+        )
+        for record in case_records
+    ]
+    return fold_output_rows, seq_output_rows, [dict(fold_output_rows[-1])], case_output_rows
 
 
-def persist_result_tables(context, fold_output_rows, seq_output_rows, all_folds_summary_rows):
+def persist_result_tables(context, fold_output_rows, seq_output_rows, all_folds_summary_rows, case_output_rows=None):
     os.makedirs(context.dataset_result_path, exist_ok=True)
     global_results_path = os.path.join(
         context.dataset_result_path,
@@ -224,12 +238,25 @@ def persist_result_tables(context, fold_output_rows, seq_output_rows, all_folds_
         context.dataset_result_path,
         f"all_folds_summary_{context.checkpoint_type}.csv",
     )
+    case_results_path = os.path.join(
+        context.dataset_result_path,
+        f"all_experiments_results_case_{context.checkpoint_type}.csv",
+    )
+    case_summary_path = os.path.join(
+        context.dataset_result_path,
+        f"all_experiments_results_case_summary_{context.checkpoint_type}.csv",
+    )
 
     append_csv_with_lock(pd.DataFrame(fold_output_rows), global_results_path)
+    append_csv_with_lock(pd.DataFrame(fold_output_rows), case_summary_path)
     append_csv_with_lock(pd.DataFrame(all_folds_summary_rows), all_folds_summary_path)
     if seq_output_rows:
         append_csv_with_lock(pd.DataFrame(seq_output_rows), seq_results_path)
     elif not os.path.exists(seq_results_path):
         pd.DataFrame(columns=["Dataset", "Experiment", "Fold", "Seq"]).to_csv(seq_results_path, index=False)
+    if case_output_rows is not None:
+        append_csv_with_lock(pd.DataFrame(case_output_rows), case_results_path)
 
-    return global_results_path, seq_results_path, all_folds_summary_path
+    if case_output_rows is not None:
+        return global_results_path, seq_results_path, all_folds_summary_path, case_results_path, case_summary_path
+    return global_results_path, seq_results_path, all_folds_summary_path, case_summary_path

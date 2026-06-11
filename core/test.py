@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from core.args import build_test_parser, build_train_parser, finalize_test_args, format_args_for_logging
+from core.args import build_test_feature_parser, build_train_parser, finalize_test_args, format_args_for_logging
 from core.runtime import (
     build_test_run_context,
     resolve_device,
@@ -21,7 +21,6 @@ from core.testing import (
     append_summary_metrics_to_row,
     build_result_export_rows,
     build_result_name,
-    colorize_test_mask,
     persist_result_tables,
     prepare_visual_output_dirs,
     save_confidence_visualization,
@@ -46,49 +45,28 @@ PER_CLASS_METRIC_PAIRS = SUMMARY_METRIC_PAIRS
 TEST_NUM_WORKERS = 4
 
 
-def build_test_feature_parser():
-    parser = build_test_parser()
-    parser.add_argument("--feat_vis", type=int, default=0, choices=[0, 1], help="enable feature map visualization")
-    parser.add_argument("--feat_vis_method", type=str, default="gradcam", choices=["gradcam"], help="feature visualization method")
-    parser.add_argument("--feat_vis_layer", type=str, default="", help="name filter for feature/gradcam layers")
-    parser.add_argument("--feat_vis_all_layers", type=int, default=1, choices=[0, 1], help="aggregate all matched layers for gradcam")
-    parser.add_argument("--feat_vis_max_layers", type=int, default=0, help="0 means no limit; otherwise keep last N matched layers")
-    parser.add_argument("--feat_vis_target_class", type=int, default=-1, help="gradcam target class; -1 uses auto non-background class")
-    parser.add_argument("--feat_vis_max_cases", type=int, default=10, help="max cases to export per fold")
-    parser.add_argument("--feat_vis_alpha", type=float, default=0.45, help="overlay alpha for feature visualization")
-    parser.add_argument("--conf_vis", type=int, default=0, choices=[0, 1], help="enable per-class confidence heatmap visualization")
-    parser.add_argument("--conf_vis_alpha", type=float, default=0.45, help="overlay alpha for confidence visualization")
-    return parser
-
-
 def create_inference_strategy(args, model, device):
     strategy_args = build_train_parser().parse_args(["--task", str(args.task)])
     for key, value in vars(args).items():
         setattr(strategy_args, key, value)
-    optimizer = torch.optim.Adam(model.parameters(), lr=strategy_args.lr, betas=(0.9, 0.99), weight_decay=0.0001)
-    return create_strategy(strategy_args.way, strategy_args, model, optimizer, device)
+    return create_strategy(strategy_args.way, strategy_args, model, torch.optim.Adam(model.parameters(), lr=strategy_args.lr, betas=(0.9, 0.99), weight_decay=0.0001), device)
 
 
 def parse_requested_folds(raw_folds, num_folds):
     if num_folds is None or num_folds <= 1:
         return [None]
-
     if raw_folds in (None, [], ()):
         return list(range(num_folds))
-
     if isinstance(raw_folds, (int, str)):
         raw_folds = [raw_folds]
-
     tokens = []
     for value in raw_folds:
         text = str(value).strip()
         if not text:
             continue
         tokens.extend(part.strip() for part in text.split(',') if part.strip())
-
     if not tokens or '-1' in tokens:
         return list(range(num_folds))
-
     folds = []
     for token in tokens:
         try:
@@ -112,8 +90,7 @@ def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
         if strategy is not None:
             depth_tensor = strategy._get_depth_tensor(sample_batch)
         elif use_depth:
-            depth_key = f"depth{use_depth}"
-            raw_depth = sample_batch.get(depth_key)
+            raw_depth = sample_batch.get(f"depth{use_depth}")
             depth_tensor = raw_depth.to(device) if raw_depth is not None else None
         else:
             depth_tensor = None
@@ -163,13 +140,11 @@ def _compute_gradcam_heatmap(args, model, strategy, sample_batch, device, hook_m
         elif num_classes == 1:
             target_class = 0
         else:
-            class_scores = logits[0].mean(dim=(1, 2))
-            target_class = int(torch.argmax(class_scores[1:]).item() + 1)
+            target_class = int(torch.argmax(logits[0].mean(dim=(1, 2))[1:]).item() + 1)
     target_class = int(target_class)
     if target_class < 0 or target_class >= num_classes:
         return None
-    score = logits[:, target_class, :, :].mean()
-    score.backward()
+    logits[:, target_class, :, :].mean().backward()
 
     cams = []
     out_size = tuple(int(v) for v in logits.shape[2:])
@@ -180,12 +155,10 @@ def _compute_gradcam_heatmap(args, model, strategy, sample_batch, device, hook_m
             continue
         if activation.ndim != 4 or gradient.ndim != 4:
             continue
-        weight = torch.mean(gradient, dim=(2, 3), keepdim=True)
-        cam = torch.relu(torch.sum(weight * activation, dim=1, keepdim=True))
+        cam = torch.relu(torch.sum(torch.mean(gradient, dim=(2, 3), keepdim=True) * activation, dim=1, keepdim=True))
         if cam.shape[2:] != out_size:
             cam = torch.nn.functional.interpolate(cam, size=out_size, mode="bilinear", align_corners=False)
-        cam_np = cam[0, 0].detach().cpu().numpy()
-        cams.append(_normalize_heatmap(cam_np))
+        cams.append(_normalize_heatmap(cam[0, 0].detach().cpu().numpy()))
     if not cams:
         return None
     return _normalize_heatmap(np.mean(np.stack(cams, axis=0), axis=0))
@@ -226,7 +199,6 @@ def _collate_test_batch(batch):
 
 def _build_test_loader(args, fold, fold_map):
     depth_channels = args.use_depth if args.use_depth else None
-    depth_uint = int(args.depth_uint)
     is_depth = bool(depth_channels)
     test_dataset = BaseDataSets(
         base_dir=args.root_path,
@@ -236,7 +208,7 @@ def _build_test_loader(args, fold, fold_map):
         load_mode='path',
         num_classes=args.num_classes,
         depth_channels=depth_channels if is_depth else None,
-        depth_uint=depth_uint,
+        depth_uint=int(args.depth_uint),
         normalize_method=args.normalize,
         fold_map=fold_map,
         use_val=False,
@@ -245,15 +217,14 @@ def _build_test_loader(args, fold, fold_map):
         task=args.task,
     )
 
-    test_loader = DataLoader(
+    return test_dataset, DataLoader(
         test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=TEST_NUM_WORKERS,
         pin_memory=True,
         collate_fn=_collate_test_batch,
-    )
-    return test_dataset, test_loader, is_depth, depth_channels
+    ), is_depth, depth_channels
 
 
 def calculate_metric_percase(pred, gt, smooth=1e-6):
@@ -295,7 +266,6 @@ def inference(
     device,
     fold_label='f0',
     rgb_output_dir=None,
-    rescale=True,
     strategy=None,
     feat_output_dir=None,
     conf_output_dir=None,
@@ -320,9 +290,7 @@ def inference(
         if not gradcam_hooks.layer_names:
             logger.warning("Grad-CAM found no Conv2d layers. Feature visualization will be skipped.")
     saved_feat_cases = 0
-    max_feat_cases = max(0, int(args.feat_vis_max_cases))
-    pbar = tqdm(test_loader, desc='Inference')
-    for batch_idx, batch in enumerate(pbar):
+    for batch_idx, batch in enumerate(tqdm(test_loader, desc='Inference')):
         if batch_idx == 0:
             logger.info('First batch received, processing %s samples...', len(batch['case']))
         labels = batch['label']
@@ -357,13 +325,14 @@ def inference(
                     num_classes=args.num_classes,
                 )
 
-            can_save_feat = (
+            if (
                 args.feat_vis
                 and feat_output_dir is not None
                 and original_images[index] is not None
-                and saved_feat_cases < max_feat_cases
-            )
-            if can_save_feat and gradcam_hooks is not None and gradcam_hooks.layer_names:
+                and saved_feat_cases < max(0, int(args.feat_vis_max_cases))
+                and gradcam_hooks is not None
+                and gradcam_hooks.layer_names
+            ):
                 class_heats = []
                 has_any_heat = False
                 for class_idx in range(int(args.num_classes)):
@@ -389,10 +358,9 @@ def inference(
                     saved_feat_cases += 1
 
             if args.conf_vis and conf_output_dir is not None and original_images[index] is not None:
-                logits_np = outputs[0].detach().cpu().numpy()
                 save_confidence_visualization(
                     image=original_images[index],
-                    logits=logits_np,
+                    logits=outputs[0].detach().cpu().numpy(),
                     output_dir=conf_output_dir,
                     case_name=case,
                     num_classes=args.num_classes,
@@ -616,8 +584,14 @@ def main():
     if args.no_val:
         logger.info('No-val test mode enabled: final checkpoint will be used')
 
-    raw_requested_folds = args.fold
-    requested_folds = parse_requested_folds(raw_requested_folds, args.num_folds)
+    if args.num_folds is None or args.num_folds <= 1:
+        requested_folds = [None]
+    elif args.fold in (None, []):
+        requested_folds = list(range(args.num_folds))
+    elif -1 in args.fold:
+        requested_folds = list(range(args.num_folds))
+    else:
+        requested_folds = sorted(set(args.fold))
     logger.info('Requested folds: %s', requested_folds)
 
     args.fold = None
@@ -641,25 +615,29 @@ def main():
 
     fold_rows = build_fold_rows(all_records, num_classes=args.num_classes)
     seq_rows = build_seq_rows(all_records, num_classes=args.num_classes)
-    fold_output_rows, seq_output_rows, all_folds_summary_rows = build_result_export_rows(
+    fold_output_rows, seq_output_rows, all_folds_summary_rows, case_output_rows = build_result_export_rows(
         args,
         context,
         fold_rows,
         seq_rows,
         train_best_by_fold,
         total_folds=len(requested_folds),
+        case_records=all_records,
     )
 
-    global_results_path, seq_results_path, all_folds_summary_path = persist_result_tables(
+    global_results_path, seq_results_path, all_folds_summary_path, case_results_path, case_summary_path = persist_result_tables(
         context,
         fold_output_rows,
         seq_output_rows,
         all_folds_summary_rows,
+        case_output_rows,
     )
 
     logger.info('Global fold results saved to: %s', global_results_path)
     logger.info('Global sequence results saved to: %s', seq_results_path)
     logger.info('Global all-fold summary saved to: %s', all_folds_summary_path)
+    logger.info('Global case results saved to: %s', case_results_path)
+    logger.info('Global case summary saved to: %s', case_summary_path)
     logger.info('Final ALL_Folds summary:')
     for line in pd.DataFrame(all_folds_summary_rows).to_string(index=False).split('\n'):
         logger.info(line)

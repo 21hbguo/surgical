@@ -160,4 +160,8 @@ run_experiment 3 cps CPS
 echo "[$(date)] === Task 3: U2PL ==="
 run_experiment 3 u2pl U2PL
 
+# CorrMatch
+echo "[$(date)] === Task 3: CorrMatch ==="
+run_experiment 3 corrmatch CorrMatch
+
 echo "[$(date)] ========== All Task 2 & Task 3 experiments completed =========="

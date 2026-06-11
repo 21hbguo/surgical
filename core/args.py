@@ -110,7 +110,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam"], help="optimizer name")
     parser.add_argument("--pretrain", type=str, default="none", choices=["none", "resnet", "depth", "dinov3"], help="strategy model map selector")
     parser.add_argument("--num_classes", type=int, default=None)
-    parser.add_argument("--fold", type=str if test_mode else int, nargs="*" if test_mode else None, default=None)
+    parser.add_argument("--fold", type=int, nargs="*" if test_mode else None, default=None)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--snapshot_path", type=str, default=None)
     parser.add_argument("--result_root", type=str, default=result_root_default, help="current mode result root")
@@ -185,4 +185,19 @@ def build_test_parser():
     parser = StrategyArgumentParser()
     add_common_args(parser, result_root_default="../result_predict", test_mode=True)
     add_test_args(parser)
+    return parser
+
+
+def build_test_feature_parser():
+    parser = build_test_parser()
+    parser.add_argument("--feat_vis", type=int, default=0, choices=[0, 1], help="enable feature map visualization")
+    parser.add_argument("--feat_vis_method", type=str, default="gradcam", choices=["gradcam"], help="feature visualization method")
+    parser.add_argument("--feat_vis_layer", type=str, default="", help="name filter for feature/gradcam layers")
+    parser.add_argument("--feat_vis_all_layers", type=int, default=1, choices=[0, 1], help="aggregate all matched layers for gradcam")
+    parser.add_argument("--feat_vis_max_layers", type=int, default=0, help="0 means no limit; otherwise keep last N matched layers")
+    parser.add_argument("--feat_vis_target_class", type=int, default=-1, help="gradcam target class; -1 uses auto non-background class")
+    parser.add_argument("--feat_vis_max_cases", type=int, default=10, help="max cases to export per fold")
+    parser.add_argument("--feat_vis_alpha", type=float, default=0.45, help="overlay alpha for feature visualization")
+    parser.add_argument("--conf_vis", type=int, default=0, choices=[0, 1], help="enable per-class confidence heatmap visualization")
+    parser.add_argument("--conf_vis_alpha", type=float, default=0.45, help="overlay alpha for confidence visualization")
     return parser

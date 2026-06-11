@@ -1,15 +1,12 @@
 import logging
 import os
-import re
 import warnings
 
 import cv2
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -23,7 +20,6 @@ from utils.common import build_run_output_dir, get_fold_seqs_from_path, load_che
 warnings.filterwarnings('ignore', message='.*timm.models.layers.*')
 
 TEST_NUM_WORKERS = 4
-LAYER_NAMES = ['e1', 'e2', 'e3', 'e4', 'e5']
 HEATMAP_SIZE = 112
 
 
@@ -39,35 +35,7 @@ def create_inference_strategy(args, model, device):
     strategy_args = build_train_parser().parse_args(["--task", str(args.task)])
     for key, value in vars(args).items():
         setattr(strategy_args, key, value)
-    optimizer = torch.optim.Adam(model.parameters(), lr=strategy_args.lr, betas=(0.9, 0.99), weight_decay=0.0001)
-    return create_strategy(strategy_args.way, strategy_args, model, optimizer, device)
-
-
-def parse_requested_folds(raw_folds, num_folds):
-    if num_folds is None or num_folds <= 1:
-        return [None]
-    if raw_folds in (None, [], ()):
-        return list(range(num_folds))
-    if isinstance(raw_folds, (int, str)):
-        raw_folds = [raw_folds]
-    tokens = []
-    for value in raw_folds:
-        text = str(value).strip()
-        if not text:
-            continue
-        tokens.extend(part.strip() for part in text.split(',') if part.strip())
-    if not tokens or '-1' in tokens:
-        return list(range(num_folds))
-    folds = []
-    for token in tokens:
-        try:
-            fold = int(token)
-        except ValueError as exc:
-            raise ValueError(f'Invalid fold value: {token!r}') from exc
-        if fold < 0 or fold >= num_folds:
-            raise ValueError(f'Fold {fold} is out of range for num_folds={num_folds}')
-        folds.append(fold)
-    return sorted(set(folds))
+    return create_strategy(strategy_args.way, strategy_args, model, torch.optim.Adam(model.parameters(), lr=strategy_args.lr, betas=(0.9, 0.99), weight_decay=0.0001), device)
 
 
 def _collate_test_batch(batch):
@@ -100,26 +68,23 @@ def _collate_test_batch(batch):
 
 def _build_test_loader(args, fold, fold_map):
     depth_channels = args.use_depth if args.use_depth else None
-    depth_uint = int(args.depth_uint)
     is_depth = bool(depth_channels)
     test_dataset = BaseDataSets(
         base_dir=args.root_path, split='test', fold=fold,
         resize_size=tuple(args.resize_size), load_mode='path',
         num_classes=args.num_classes,
         depth_channels=depth_channels if is_depth else None,
-        depth_uint=depth_uint, normalize_method=args.normalize,
+        depth_uint=int(args.depth_uint), normalize_method=args.normalize,
         fold_map=fold_map, use_val=False, for_inference=True,
         is_depth=is_depth, task=args.task,
     )
     loader_generator = torch.Generator()
-    loader_seed = int(args.seed) + (0 if fold is None else int(fold))
-    loader_generator.manual_seed(loader_seed)
-    test_loader = DataLoader(
+    loader_generator.manual_seed(int(args.seed) + (0 if fold is None else int(fold)))
+    return test_dataset, DataLoader(
         test_dataset, batch_size=args.batch_size, shuffle=True,
         num_workers=TEST_NUM_WORKERS, pin_memory=True, collate_fn=_collate_test_batch,
         generator=loader_generator,
-    )
-    return test_dataset, test_loader, is_depth, depth_channels
+    ), is_depth, depth_channels
 
 
 def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False):
@@ -133,8 +98,7 @@ def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
         if strategy is not None:
             depth_tensor = strategy._get_depth_tensor(sample_batch)
         elif use_depth:
-            depth_key = f"depth{use_depth}"
-            raw_depth = sample_batch.get(depth_key)
+            raw_depth = sample_batch.get(f"depth{use_depth}")
             depth_tensor = raw_depth.to(device) if raw_depth is not None else None
         else:
             depth_tensor = None
@@ -158,7 +122,7 @@ def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
 
 
 def _find_depth_guiders(model):
-    for name, module in model.named_modules():
+    for module in model.modules():
         if hasattr(module, 'depth_guiders'):
             return module.depth_guiders
     return None
@@ -173,7 +137,6 @@ def _patch_depth_guiders(guiders):
 
     for idx, guider in enumerate(guiders):
         orig_fwd = original_forwards[idx]
-        layer_idx = idx
         has_delta = hasattr(guider, 'compute_delta')
         has_affine = hasattr(guider, 'compute_gamma_beta')
 
@@ -206,7 +169,7 @@ def _patch_depth_guiders(guiders):
                     return output
                 return patched
 
-            guider.forward = make_patched_delta(orig_fwd, layer_idx, guider)
+            guider.forward = make_patched_delta(orig_fwd, idx, guider)
         elif has_affine:
             def make_patched_fc(orig, li, guider_mod):
                 def patched(rgb_feat, depth):
@@ -235,7 +198,7 @@ def _patch_depth_guiders(guiders):
                     return output
                 return patched
 
-            guider.forward = make_patched_fc(orig_fwd, layer_idx, guider)
+            guider.forward = make_patched_fc(orig_fwd, idx, guider)
         else:
             def make_patched_simple(orig, li):
                 def patched(rgb_feat, depth):
@@ -259,7 +222,7 @@ def _patch_depth_guiders(guiders):
                     return output
                 return patched
 
-            guider.forward = make_patched_simple(orig_fwd, layer_idx)
+            guider.forward = make_patched_simple(orig_fwd, idx)
 
     return records, original_forwards
 
@@ -282,18 +245,11 @@ def _diff_to_rgb(diff_2d, size=HEATMAP_SIZE, vmax_override=None):
         return np.ones((size, size, 3), dtype=np.uint8) * 255
     norm = diff_resized / vmax
     norm = np.clip(norm, -1, 1)
-    r = (np.clip(norm, 0, 1) * 255).astype(np.uint8)
-    b = (np.clip(-norm, 0, 1) * 255).astype(np.uint8)
-    g = (255 - np.abs(norm) * 255).astype(np.uint8)
-    return np.stack([b, g, r], axis=-1)
-
-
-def _effect_to_rgb(effect_2d, size=HEATMAP_SIZE):
-    effect_resized = cv2.resize(effect_2d.astype(np.float32), (size, size), interpolation=cv2.INTER_LINEAR)
-    vmax = float(effect_resized.max())
-    if vmax < 1e-8:
-        return np.ones((size, size, 3), dtype=np.uint8) * 255
-    return _heatmap_to_rgb(effect_resized / vmax)
+    return np.stack([
+        (np.clip(-norm, 0, 1) * 255).astype(np.uint8),
+        (255 - np.abs(norm) * 255).astype(np.uint8),
+        (np.clip(norm, 0, 1) * 255).astype(np.uint8),
+    ], axis=-1)
 
 
 def _resize_for_vis(arr, size=HEATMAP_SIZE):
@@ -305,24 +261,6 @@ def _resize_for_vis(arr, size=HEATMAP_SIZE):
     return cv2.resize(arr, (size, size), interpolation=cv2.INTER_LINEAR)
 
 
-def _feat_to_heatmap(feat_tensor):
-    mean_map = feat_tensor.mean(dim=0).numpy()
-    return _resize_for_vis(mean_map)
-
-
-def _feat_to_heatmap_paired(feat_a, feat_b, size=HEATMAP_SIZE):
-    map_a = feat_a.mean(dim=0).numpy().astype(np.float32)
-    map_b = feat_b.mean(dim=0).numpy().astype(np.float32)
-    vmin = min(map_a.min(), map_b.min())
-    vmax = max(map_a.max(), map_b.max())
-    denom = vmax - vmin
-    if denom < 1e-8:
-        return np.zeros((size, size), dtype=np.float32), np.zeros((size, size), dtype=np.float32)
-    norm_a = (map_a - vmin) / denom
-    norm_b = (map_b - vmin) / denom
-    return cv2.resize(norm_a, (size, size), interpolation=cv2.INTER_LINEAR), cv2.resize(norm_b, (size, size), interpolation=cv2.INTER_LINEAR)
-
-
 def _feat_to_heatmap_shared(feat_tensors, size=HEATMAP_SIZE):
     maps = [feat.mean(dim=0).numpy().astype(np.float32) for feat in feat_tensors]
     vmin = min(m.min() for m in maps)
@@ -331,17 +269,6 @@ def _feat_to_heatmap_shared(feat_tensors, size=HEATMAP_SIZE):
     if denom < 1e-8:
         return [np.zeros((size, size), dtype=np.float32) for _ in maps]
     return [cv2.resize((m - vmin) / denom, (size, size), interpolation=cv2.INTER_LINEAR) for m in maps]
-
-
-def _reduce_channel_values(feat):
-    if feat is None:
-        return None
-    values = feat[0].numpy()
-    if values.ndim == 1:
-        return values
-    if values.ndim == 3:
-        return values.mean(axis=(1, 2))
-    return values.reshape(values.shape[0], -1).mean(axis=1)
 
 
 def _make_header(total_width):
@@ -359,15 +286,7 @@ def _make_header(total_width):
     return header
 
 
-def _signed_map_to_rgb(feat_2d, size=HEATMAP_SIZE):
-    return _diff_to_rgb(feat_2d, size)
-
-
-def _unsigned_map_to_rgb(feat_2d, size=HEATMAP_SIZE):
-    return _effect_to_rgb(feat_2d, size)
-
-
-def _make_layer_row(record, rgb_img, depth_img, layer_idx):
+def _make_layer_row(record, rgb_img, depth_img):
     feat_in_t = record['feat_in'][0]
     feat_out_t = record['feat_out'][0]
     feat_in_map, feat_out_map = _feat_to_heatmap_shared([feat_in_t, feat_out_t])
@@ -389,7 +308,7 @@ def _make_layer_row(record, rgb_img, depth_img, layer_idx):
     vis_mode = record.get('vis_mode', 'affine')
     if vis_mode == 'delta':
         delta_map = record['delta'][0].mean(dim=0).numpy().astype(np.float32)
-        delta_view = _signed_map_to_rgb(delta_map, HEATMAP_SIZE)
+        delta_view = _diff_to_rgb(delta_map, HEATMAP_SIZE)
         eff_tensor = record['delta'][0]
         eff_mean = float(eff_tensor.abs().mean().item())
         eff_std = float(eff_tensor.std().item())
@@ -402,7 +321,7 @@ def _make_layer_row(record, rgb_img, depth_img, layer_idx):
         cv2.putText(delta_view, f'r={eff_rel:.3f}', (4, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
     else:
         delta_map = record['feat_delta_depth'][0].mean(dim=0).numpy().astype(np.float32)
-        delta_view = _signed_map_to_rgb(delta_map, HEATMAP_SIZE)
+        delta_view = _diff_to_rgb(delta_map, HEATMAP_SIZE)
         eff_tensor = record['feat_delta_depth'][0]
         eff_mean = float(eff_tensor.abs().mean().item())
         eff_std = float(eff_tensor.std().item())
@@ -413,8 +332,7 @@ def _make_layer_row(record, rgb_img, depth_img, layer_idx):
         cv2.putText(delta_view, f'max={eff_maxabs:.4f}', (4, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
         cv2.putText(delta_view, f'|delta|={eff_mean:.4f}', (4, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
         cv2.putText(delta_view, f'r={eff_rel:.3f}', (4, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
-    row = np.hstack([rgb_resized, depth_vis, feat_in_bgr, feat_out_bgr, delta_view])
-    return row
+    return np.hstack([rgb_resized, depth_vis, feat_in_bgr, feat_out_bgr, delta_view])
 
 
 def visualize_gamma_beta(rgb_img, depth_img, records, save_path):
@@ -426,8 +344,7 @@ def visualize_gamma_beta(rgb_img, depth_img, records, save_path):
     header = _make_header(total_width)
     rows = [header]
     for rec in records:
-        row = _make_layer_row(rec, rgb_img, depth_img, rec['layer_idx'])
-        rows.append(row)
+        rows.append(_make_layer_row(rec, rgb_img, depth_img))
 
     min_w = min(r.shape[1] for r in rows)
     rows = [r[:, :min_w] for r in rows]
@@ -559,7 +476,14 @@ def main():
     logger.info('Args: %s', format_args_for_logging(args))
     logger.info('Strategy: %s', args.way)
 
-    requested_folds = parse_requested_folds(args.fold, args.num_folds)
+    if args.num_folds is None or args.num_folds <= 1:
+        requested_folds = [None]
+    elif args.fold in (None, []):
+        requested_folds = list(range(args.num_folds))
+    elif -1 in args.fold:
+        requested_folds = list(range(args.num_folds))
+    else:
+        requested_folds = sorted(set(args.fold))
     args.fold = None
     context = build_test_run_context(args)
     fold_map = get_fold_seqs_from_path(args.root_path, args.task) if args.num_folds and args.num_folds > 1 else {}
@@ -573,12 +497,10 @@ def main():
         logger.info('Fold %s | snapshot: %s', fold_label, snapshot_path)
 
         model = create_model(args).to(device)
-        checkpoint_name = 'model_best.pth' if context.checkpoint_type == 'best' else 'model_final.pth'
-        checkpoint_path = os.path.join(snapshot_path, checkpoint_name)
-        load_checkpoint(model, checkpoint_path)
+        load_checkpoint(model, os.path.join(snapshot_path, 'model_best.pth' if context.checkpoint_type == 'best' else 'model_final.pth'))
 
         strategy = create_inference_strategy(args, model, device)
-        test_dataset, test_loader, _, _ = _build_test_loader(args, fold, fold_map)
+        _, test_loader, _, _ = _build_test_loader(args, fold, fold_map)
 
         output_dir = args.vis_output_dir or os.path.join(
             build_run_output_dir(args, mode='test', fold=fold), 'depth_guider_vis'
