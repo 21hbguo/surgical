@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import os
+from random import sample
 
 import cv2
 import h5py
@@ -94,8 +95,7 @@ def _find_png_paths(case, base_dir, _split, task):
     if img_path is None:
         return None, None
 
-    label_dir = get_task_label_dir(base_dir, task)
-    lab_stem = os.path.join(base_dir, "data", label_dir, case_stem)
+    lab_stem = os.path.join(base_dir, "data", get_task_label_dir(base_dir, task), case_stem)
     for ext in _IMAGE_EXTENSIONS:
         candidate = lab_stem + ext
         if os.path.exists(candidate):
@@ -143,33 +143,24 @@ def _load_and_resize_sample(
     if split != "test":
         lab = _resize_numpy_array(lab, (target_h, target_w))
     sample = {"image": img, "label": lab, "label_path": lab_path, "original_label": original_label, "original_shape": original_shape}
-    if depth_channels is None:
-        return idx, sample
-
+    
+    def _load_depth(ch, case, base_dir, split, depth_uint, target_h, target_w):
+        path = _find_depth_png_path(case, base_dir, split, depth_channels=ch, depth_uint=depth_uint)
+        if not path:
+            return None
+        if ch == 1:
+            arr = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        else:
+            arr = cv2.imread(path, cv2.IMREAD_COLOR)
+            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+        return _resize_numpy_array(arr, (target_h, target_w))
     if depth_channels == 13:
-        depth1c_path = _find_depth_png_path(case, base_dir, split, depth_channels=1, depth_uint=depth_uint)
-        if depth1c_path is not None:
-            depth1 = cv2.imread(depth1c_path, cv2.IMREAD_UNCHANGED)
-            sample["depth1"] = _resize_numpy_array(depth1, (target_h, target_w))
-        depth3c_path = _find_depth_png_path(case, base_dir, split, depth_channels=3, depth_uint=depth_uint)
-        if depth3c_path is not None:
-            depth3 = cv2.imread(depth3c_path, cv2.IMREAD_COLOR)
-            depth3 = cv2.cvtColor(depth3, cv2.COLOR_BGR2RGB)
-            sample["depth3"] = _resize_numpy_array(depth3, (target_h, target_w))
-        return idx, sample
-
-    if depth_channels == 3:
-        depth3c_path = _find_depth_png_path(case, base_dir, split, depth_channels=3, depth_uint=depth_uint)
-        if depth3c_path is not None:
-            depth3 = cv2.imread(depth3c_path, cv2.IMREAD_COLOR)
-            depth3 = cv2.cvtColor(depth3, cv2.COLOR_BGR2RGB)
-            sample["depth3"] = _resize_numpy_array(depth3, (target_h, target_w))
-        return idx, sample
-
-    depth1c_path = _find_depth_png_path(case, base_dir, split, depth_channels=1, depth_uint=depth_uint)
-    if depth1c_path is not None:
-        depth1 = cv2.imread(depth1c_path, cv2.IMREAD_UNCHANGED)
-        sample["depth1"] = _resize_numpy_array(depth1, (target_h, target_w))
+        sample["depth1"] = _load_depth(1, case, base_dir, split, depth_uint, target_h, target_w)
+        sample["depth3"] = _load_depth(3, case, base_dir, split, depth_uint, target_h, target_w)
+    elif depth_channels == 3:
+        sample["depth3"] = _load_depth(3, case, base_dir, split, depth_uint, target_h, target_w)
+    elif depth_channels == 1:
+        sample["depth1"] = _load_depth(1, case, base_dir, split, depth_uint, target_h, target_w)
     return idx, sample
 
 
@@ -234,14 +225,6 @@ class BaseDataSets(Dataset):
         logger.info("total %d samples", len(self.sample_list))
         self._preload_samples()
 
-    @staticmethod
-    def _find_png_paths_static(case, base_dir, _split, task):
-        return _find_png_paths(case, base_dir, _split, task)
-
-    @staticmethod
-    def _find_depth_png_path_static(case, base_dir, _split, depth_channels=1, depth_uint=16):
-        return _find_depth_png_path(case, base_dir, _split, depth_channels=depth_channels, depth_uint=depth_uint)
-
     def _preload_samples(self):
         if not self.sample_list or self.load_mode != "data":
             return
@@ -275,23 +258,7 @@ class BaseDataSets(Dataset):
 
     def __len__(self):
         return len(self.sample_list)
-
-    def _get_sample(self, idx):
-        if idx in self.data_cache:
-            return {key: value.copy() if isinstance(value, np.ndarray) else value for key, value in self.data_cache[idx].items()}
-        return _load_and_resize_sample(
-            idx,
-            self.sample_list[idx],
-            self._base_dir,
-            self.split,
-            *self.resize_size,
-            self.num_classes,
-            self.depth_channels,
-            self.depth_uint,
-            self.strategy,
-            self.task,
-        )[1]
-
+       
     def _normalize_inputs(self, image, depth3=None, depth1=None):
         image = _normalize_array(image, method=self.normalize_method)
         if depth3 is not None:
@@ -335,16 +302,21 @@ class BaseDataSets(Dataset):
         return tensor_sample
 
     def __getitem__(self, idx):
-        sample = self._get_sample(idx)
+        if idx in self.data_cache:
+            sample = {key: value.copy() if isinstance(value, np.ndarray) else value for key, value in self.data_cache[idx].items()}
+        else:
+            sample = _load_and_resize_sample(
+                idx, self.sample_list[idx],
+                self._base_dir, self.split,
+                *self.resize_size, self.num_classes,
+                self.depth_channels, self.depth_uint,
+                self.strategy, self.task)[1]
 
-        if self.split in {"train", "val"}:
+        if self.split in {"train", "val", "test"} and not self.for_inference:
             return self._to_train_or_val_item(sample, idx)
 
         if self.split == "test" and self.for_inference:
             return self._to_test_inference_item(sample, idx)
-
-        if self.split == "test":
-            return self._to_train_or_val_item(sample, idx)
 
         raise ValueError(f"Unsupported split: {self.split}")
 
