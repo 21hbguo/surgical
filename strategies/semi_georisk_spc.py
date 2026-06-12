@@ -288,12 +288,11 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         return loss_dict
 
     def validation_step(self, batch_data):
-        with torch.no_grad():
-            volume = batch_data['image'].to(self.device)
-            depth_tensor = self._get_depth_tensor(batch_data)
-            if depth_tensor is not None:
-                volume = torch.cat([volume, depth_tensor], dim=1)
-            output = self.model(volume)
-            if isinstance(output, tuple):
-                output = output[0]
-            return output
+        volume = batch_data['image'].to(self.device)
+        depth_tensor = self._get_depth_tensor(batch_data)
+        if depth_tensor is not None:
+            volume = torch.cat([volume, depth_tensor], dim=1)
+        output = self.model(volume)
+        if isinstance(output, tuple):
+            output = output[0]
+        return output

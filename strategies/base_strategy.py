@@ -145,12 +145,11 @@ class BaseTrainingStrategy:
             opt.step()
 
     def validation_step(self, batch_data):
-        with torch.no_grad():
-            volume = batch_data["image"].to(self.device)
-            depth_tensor = self._get_depth_tensor(batch_data)
-            if depth_tensor is not None:
-                volume = torch.cat([volume, depth_tensor], dim=1)
-            return self.model(volume)
+        volume = batch_data["image"].to(self.device)
+        depth_tensor = self._get_depth_tensor(batch_data)
+        if depth_tensor is not None:
+            volume = torch.cat([volume, depth_tensor], dim=1)
+        return self.model(volume)
 
     def _set_model_mode(self, training):
         self.model.train(mode=training)

@@ -325,12 +325,11 @@ class RDNetStrategy(BaseTrainingStrategy):
         return loss_dict
 
     def validation_step(self, batch_data):
-        with torch.no_grad():
-            image = batch_data["image"].to(self.device)
-            expected_channels = int(getattr(self.model, "params", {}).get("in_chns", image.shape[1]))
-            rgb_input = self._match_expected_channels(image, expected_channels)
-            output = self.model(rgb_input)
-            return self._extract_logits(output)
+        image = batch_data["image"].to(self.device)
+        expected_channels = int(getattr(self.model, "params", {}).get("in_chns", image.shape[1]))
+        rgb_input = self._match_expected_channels(image, expected_channels)
+        output = self.model(rgb_input)
+        return self._extract_logits(output)
 
     def _set_model_mode(self, training):
         super()._set_model_mode(training)

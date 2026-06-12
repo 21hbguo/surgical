@@ -147,9 +147,8 @@ class MTDepthTeacherV1Strategy(BaseTrainingStrategy):
         }
 
     def validation_step(self, batch_data):
-        with torch.no_grad():
-            volume = batch_data["image"].to(self.device)
-            return self.model(volume)
+        volume = batch_data["image"].to(self.device)
+        return self.model(volume)
 
     def load_state_dict(self, state_dict):
         if isinstance(state_dict, dict) and "model" in state_dict:

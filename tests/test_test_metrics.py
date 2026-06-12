@@ -1,10 +1,12 @@
 from types import SimpleNamespace
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import core.test as test_core
 import core.testing.export as test_export
+import torch
 
 
 class TestRequestedFolds(unittest.TestCase):
@@ -200,6 +202,37 @@ class TestInMemoryAggregation(unittest.TestCase):
 
 
 class TestMainOutputs(unittest.TestCase):
+    def test_run_one_fold_loads_full_strategy_state(self):
+        class Strategy:
+            def __init__(self):
+                self.loaded = None
+            def load_state_dict(self, state_dict):
+                self.loaded = state_dict
+        class Dataset:
+            def __len__(self):
+                return 0
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.tensor([1.0]))
+            def forward(self, x):
+                return x
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint_path = Path(tmpdir) / "model_best.pth"
+            torch.save({"model_state": {"model": {"weight": torch.tensor([1.0])}, "model2": {"weight": torch.tensor([2.0])}}, "best_performance": 0.7}, checkpoint_path)
+            strategy = Strategy()
+            args = SimpleNamespace(snapshot_path=tmpdir, device="cpu", lr=1e-4, batch_size=1, num_classes=2, way="fully")
+            context = SimpleNamespace(checkpoint_type="best")
+            with patch.object(test_core, "create_model", return_value=Model()), \
+                 patch.object(test_core, "create_strategy", return_value=strategy), \
+                 patch.object(test_core, "_build_test_loader", return_value=(Dataset(), [], False, None)), \
+                 patch.object(test_core, "prepare_visual_output_dirs", return_value=(None, None, None)), \
+                 patch.object(test_core, "inference", return_value=[]):
+                train_best_dice, records = test_core.run_one_fold(args, None, {}, context)
+        self.assertEqual(train_best_dice, 0.7)
+        self.assertEqual(records, [])
+        self.assertIn("model2", strategy.loaded)
+
     def test_main_does_not_write_excel_workbook(self):
         args = SimpleNamespace(
             way="mt",
@@ -244,6 +277,7 @@ class TestMainOutputs(unittest.TestCase):
             os_mock.path.exists.return_value = True
             test_core.main()
             excel_writer_mock.assert_not_called()
+            test_core.parse_requested_folds.assert_called_once_with(None, 1)
 
 
 if __name__ == "__main__":

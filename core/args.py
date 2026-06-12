@@ -110,7 +110,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam"], help="optimizer name")
     parser.add_argument("--pretrain", type=str, default="none", choices=["none", "resnet", "depth", "dinov3"], help="strategy model map selector")
     parser.add_argument("--num_classes", type=int, default=None)
-    parser.add_argument("--fold", type=int, nargs="*" if test_mode else None, default=None)
+    parser.add_argument("--fold", type=str if test_mode else int, nargs="*" if test_mode else None, default=None)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--snapshot_path", type=str, default=None)
     parser.add_argument("--result_root", type=str, default=result_root_default, help="current mode result root")
@@ -166,7 +166,11 @@ def add_train_args(parser):
 
 def add_test_args(parser):
     parser.add_argument("--labeled_num", type=float, default=10, help="Labeled percentage. Examples: 0.1=0.1%%, 1=1%%, 10=10%%.")
+    parser.add_argument("--labeled_bs", type=int, default=2)
+    parser.add_argument("--unlabeled_bs", type=int, default=2)
     parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"])
+    parser.add_argument("--max_iterations", type=int, default=30000)
+    parser.add_argument("--grad_clip", type=float, default=0.0)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--checkpoint-type", "--pth", "--pth_type", dest="requested_checkpoint_type", type=str, default="best", choices=["best", "final", "latest"])
     parser.add_argument("--rgb", type=int, default=0, choices=[0, 1, 2, 3], help="0=off, 1=pred overlay, 2=label/pred side-by-side, 3=label only")

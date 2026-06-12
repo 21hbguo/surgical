@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from core.args import build_test_feature_parser, build_train_parser, finalize_test_args, format_args_for_logging
+from core.args import build_test_feature_parser, finalize_test_args, format_args_for_logging
 from core.runtime import (
     build_test_run_context,
     resolve_device,
@@ -30,7 +30,7 @@ from core.testing import (
 from data import BaseDataSets
 from models.factory import create_model
 from strategies import create_strategy
-from utils.common import build_run_output_dir, get_fold_seqs_from_path, load_checkpoint
+from utils.common import CHECKPOINT_INFO_KEYS, build_run_output_dir, get_fold_seqs_from_path
 
 warnings.filterwarnings('ignore', message='.*timm.models.layers.*')
 
@@ -43,13 +43,6 @@ SUMMARY_METRIC_PAIRS = (
 )
 PER_CLASS_METRIC_PAIRS = SUMMARY_METRIC_PAIRS
 TEST_NUM_WORKERS = 4
-
-
-def create_inference_strategy(args, model, device):
-    strategy_args = build_train_parser().parse_args(["--task", str(args.task)])
-    for key, value in vars(args).items():
-        setattr(strategy_args, key, value)
-    return create_strategy(strategy_args.way, strategy_args, model, torch.optim.Adam(model.parameters(), lr=strategy_args.lr, betas=(0.9, 0.99), weight_decay=0.0001), device)
 
 
 def parse_requested_folds(raw_folds, num_folds):
@@ -80,30 +73,19 @@ def parse_requested_folds(raw_folds, num_folds):
 
 
 def _predict_logits(args, model, strategy, sample_batch, device, use_grad=False):
-    strategy_model = strategy.model if strategy is not None else None
-    if strategy is not None and strategy_model is None:
-        outputs = strategy.validation_step(sample_batch)
-    else:
-        target_model = strategy_model if strategy_model is not None else model
-        volume = sample_batch["image"].to(device)
-        use_depth = int(args.use_depth or 0)
-        if strategy is not None:
-            depth_tensor = strategy._get_depth_tensor(sample_batch)
-        elif use_depth:
-            raw_depth = sample_batch.get(f"depth{use_depth}")
-            depth_tensor = raw_depth.to(device) if raw_depth is not None else None
-        else:
-            depth_tensor = None
-        if depth_tensor is not None:
-            if args.way == "only_depth_input":
-                volume = depth_tensor.repeat(1, 3, 1, 1) if depth_tensor.shape[1] == 1 else depth_tensor
-            else:
-                volume = torch.cat([volume, depth_tensor], dim=1)
+    if strategy is not None:
         if use_grad:
-            outputs = target_model(volume)
+            outputs = strategy.validation_step(sample_batch)
         else:
             with torch.no_grad():
-                outputs = target_model(volume)
+                outputs = strategy.validation_step(sample_batch)
+    else:
+        volume = sample_batch["image"].to(device)
+        if use_grad:
+            outputs = model(volume)
+        else:
+            with torch.no_grad():
+                outputs = model(volume)
     if not isinstance(outputs, tuple):
         return outputs
     if args.way == "urpc":
@@ -535,10 +517,28 @@ def run_one_fold(args, fold, fold_map, context):
     logger.info('%s', '=' * 60)
 
     model = create_model(args).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=0.0001)
+    strategy = create_strategy(args.way, args, model, optimizer, device)
     checkpoint_name = 'model_best.pth' if context.checkpoint_type == 'best' else 'model_final.pth'
     checkpoint_path = os.path.join(snapshot_path, checkpoint_name)
-    info = load_checkpoint(model, checkpoint_path)
-    strategy = create_inference_strategy(args, model, device)
+    if os.path.exists(checkpoint_path) and os.path.getsize(checkpoint_path) == 0:
+        raise ValueError(f'{checkpoint_path} is an empty checkpoint marker. Use --checkpoint-type best for validation runs or retrain with --no_val for final checkpoint.')
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    state_dict = checkpoint
+    for key in ("model_state_dict", "model_state", "state_dict", "model"):
+        if isinstance(checkpoint, dict) and key in checkpoint:
+            state_dict = checkpoint[key]
+            break
+    prefix = "_orig_mod."
+    if isinstance(state_dict, dict) and "model" in state_dict:
+        model_state = state_dict["model"]
+        if any(key.startswith(prefix) for key in model_state):
+            state_dict = dict(state_dict)
+            state_dict["model"] = {key[len(prefix):] if key.startswith(prefix) else key: value for key, value in model_state.items()}
+    elif isinstance(state_dict, dict) and any(key.startswith(prefix) for key in state_dict):
+        state_dict = {key[len(prefix):] if key.startswith(prefix) else key: value for key, value in state_dict.items()}
+    strategy.load_state_dict(state_dict)
+    info = {key: checkpoint[key] for key in CHECKPOINT_INFO_KEYS if isinstance(checkpoint, dict) and key in checkpoint}
     train_best_dice = info.get('best_performance', None)
     logger.info('Loaded %s checkpoint from %s', context.checkpoint_type, checkpoint_path)
     if train_best_dice is not None:
@@ -584,14 +584,7 @@ def main():
     if args.no_val:
         logger.info('No-val test mode enabled: final checkpoint will be used')
 
-    if args.num_folds is None or args.num_folds <= 1:
-        requested_folds = [None]
-    elif args.fold in (None, []):
-        requested_folds = list(range(args.num_folds))
-    elif -1 in args.fold:
-        requested_folds = list(range(args.num_folds))
-    else:
-        requested_folds = sorted(set(args.fold))
+    requested_folds = parse_requested_folds(args.fold, args.num_folds)
     logger.info('Requested folds: %s', requested_folds)
 
     args.fold = None

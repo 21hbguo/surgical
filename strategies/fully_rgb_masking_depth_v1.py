@@ -82,14 +82,12 @@ class FullyRGBMaskingDepthV1Strategy(BaseTrainingStrategy):
         return {"total": loss, "ce": loss_ce, "dice": loss_dice}
 
     def validation_step(self, batch_data):
-        with torch.no_grad():
-            rgb = batch_data["image"].to(self.device)
-            depth3 = batch_data.get("depth3")
-            if depth3 is None:
-                raise KeyError("fully_rgb_masking_depth_v1 requires batch_data['depth3'] (3-channel depth)")
-            depth3 = depth3.to(self.device)
-            if depth3.shape[1] == 1:
-                depth3 = depth3.repeat(1, 3, 1, 1)
-            volume = self._build_complementary_input(rgb, depth3)
-            # self._save_complementary_visualization(volume)
-            return self.model(volume)
+        rgb = batch_data["image"].to(self.device)
+        depth3 = batch_data.get("depth3")
+        if depth3 is None:
+            raise KeyError("fully_rgb_masking_depth_v1 requires batch_data['depth3'] (3-channel depth)")
+        depth3 = depth3.to(self.device)
+        if depth3.shape[1] == 1:
+            depth3 = depth3.repeat(1, 3, 1, 1)
+        volume = self._build_complementary_input(rgb, depth3)
+        return self.model(volume)

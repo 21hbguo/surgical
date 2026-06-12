@@ -100,21 +100,18 @@ class FullyDepthPretrainStrategy(BaseTrainingStrategy):
         }
 
     def validation_step(self, batch_data):
-        with torch.no_grad():
-            rgb = batch_data["image"].to(self.device)
-            depth3 = batch_data.get("depth3")
-            if depth3 is None:
-                raise KeyError("fully_depth_pretrain requires batch_data['depth3'] (3-channel depth)")
-            depth3 = depth3.to(self.device)
-            if depth3.shape[1] == 1:
-                depth3 = depth3.repeat(1, 3, 1, 1)
-            mask = self._build_random_mask(depth3)
-            masked_depth3 = depth3 * mask
-            model_input = torch.cat([rgb, masked_depth3], dim=1)
-            output = self.model(model_input)
-            if isinstance(output, (tuple, list)):
-                output = output[1] if len(output) > 1 else output[0]
-
-            pred_depth3 = self._to_depth3(output, target_size=depth3.shape[2:])
-            # self._save_simple_visualization(depth3, masked_depth3, pred_depth3)
-            return pred_depth3
+        rgb = batch_data["image"].to(self.device)
+        depth3 = batch_data.get("depth3")
+        if depth3 is None:
+            raise KeyError("fully_depth_pretrain requires batch_data['depth3'] (3-channel depth)")
+        depth3 = depth3.to(self.device)
+        if depth3.shape[1] == 1:
+            depth3 = depth3.repeat(1, 3, 1, 1)
+        mask = self._build_random_mask(depth3)
+        masked_depth3 = depth3 * mask
+        model_input = torch.cat([rgb, masked_depth3], dim=1)
+        output = self.model(model_input)
+        if isinstance(output, (tuple, list)):
+            output = output[1] if len(output) > 1 else output[0]
+        pred_depth3 = self._to_depth3(output, target_size=depth3.shape[2:])
+        return pred_depth3

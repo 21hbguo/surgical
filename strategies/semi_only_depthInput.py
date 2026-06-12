@@ -66,6 +66,5 @@ class OnlyDepthInputStrategy(BaseTrainingStrategy):
         return loss_dict
 
     def validation_step(self, batch_data):
-        with torch.no_grad():
-            volume = self._make_depth_volume(batch_data)
-            return self.model(volume)
+        volume = self._make_depth_volume(batch_data)
+        return self.model(volume)

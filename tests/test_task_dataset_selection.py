@@ -14,7 +14,9 @@ from core.args import build_test_parser, build_train_parser, finalize_test_args
 import core.test as test_core
 import core.train as train_core
 from core.testing.export import build_summary_row
+from core.testing.visualization import colorize_test_mask
 from data import BaseDataSets
+from strategies import create_strategy
 from strategies import semi_dycon, semi_uncertainty_mt, semi_w2s
 from strategies.specs import resolve_strategy_input_settings
 import utils.common as common
@@ -614,7 +616,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
     def test_colorize_mask_uses_fixed_ten_class_mapping(self):
         mask = np.array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]], dtype=np.uint8)
 
-        rgb = test_core.colorize_test_mask(mask, num_classes=10)
+        rgb = colorize_test_mask(mask, num_classes=10)
 
         expected = np.array(
             [
@@ -840,7 +842,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertEqual(strategy.seen_image_shape, (1, 3, 2, 2))
         self.assertEqual(strategy.seen_depth_shape, (1, 3, 2, 2))
 
-    def test_create_inference_strategy_hydrates_train_defaults_for_mt_depth_teacher(self):
+    def test_test_args_hydrate_strategy_defaults_for_mt_depth_teacher(self):
         args = build_test_parser().parse_args(
             [
                 "--task",
@@ -866,11 +868,8 @@ class TaskDatasetSelectionTest(unittest.TestCase):
                 return self.conv(x)
 
         model = DummyModel(in_chns=args.in_chns, class_num=args.num_classes)
-        strategy = test_core.create_inference_strategy(
-            args,
-            model,
-            torch.device("cpu"),
-        )
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=0.0001)
+        strategy = create_strategy(args.way, args, model, optimizer, torch.device("cpu"))
 
         self.assertEqual(strategy.labeled_bs, 2)
         self.assertEqual(strategy.grad_clip, 0.0)
