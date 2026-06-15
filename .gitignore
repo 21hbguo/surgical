@@ -18,8 +18,12 @@ temp/
 result*/
 .agents/
 .aris/
-paper*/
-paper copy/
-*.md
 *.csv
 figures*/
+paper_lab/
+paper/**
+paper copy/**
+!paper/
+!paper copy/
+!paper/**/*.md
+!paper copy/**/*.md
