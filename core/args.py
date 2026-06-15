@@ -117,7 +117,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--in_chns", type=int, default=None)
     parser.add_argument("--filter_num", type=int, default=16, help="filter number for UNet-family models")
-    parser.add_argument("--resize_size", type=int, nargs=2, default=[512, 512])
+    parser.add_argument("--resize_size", type=int, nargs=2, default=[224, 224])
     parser.add_argument("--use_depth", type=int, default=None, choices=[1, 3, 13], help="Depth mode: 1=depth1c input, 3=depth3c input, 13=load both depth1c+depth3c while model input keeps depth1c channels.")
     parser.add_argument("--depth_uint", type=int, default=16, choices=[8, 16], help="Depth folder bit-width suffix. Reads depth{c}c_slices_uint{depth_uint}.")
     parser.add_argument("--normalize", type=str, default="255", choices=["minmax", "255", "imagenet"])
