@@ -2,6 +2,7 @@ import concurrent.futures
 import logging
 import os
 from random import sample
+from pathlib import Path
 
 import cv2
 import h5py
@@ -109,6 +110,14 @@ def _find_depth_png_path(case, base_dir, _split, depth_channels=1, depth_uint=16
     return path if os.path.exists(path) else None
 
 
+def _build_cache_path(src_path, base_dir, resize_size):
+    data_dir = Path(base_dir) / "data"
+    cache_root = Path(base_dir) / "data_cache" / f"{resize_size[0]}_{resize_size[1]}"
+    src_path = Path(src_path)
+    relative_path = src_path.relative_to(data_dir) if src_path.is_absolute() else Path(os.path.relpath(src_path, data_dir))
+    return (cache_root / relative_path).with_suffix(".npy")
+
+
 def _load_and_resize_sample(
     idx,
     case,
@@ -121,46 +130,98 @@ def _load_and_resize_sample(
     depth_uint=16,
     strategy=None,
     task=None,
+    cache_mode="none",
+    cache_refresh=False,
 ):
     del num_classes, strategy
+    def _load_or_build_cached_array(src_path, read_flag, resize_size, is_label=False, cache_suffix=None):
+        array = None
+        cache_path = None
+        if cache_mode == "disk":
+            cache_stem = _build_cache_path(src_path, base_dir, resize_size).with_suffix("")
+            if cache_suffix:
+                cache_stem = cache_stem.parent / f"{cache_stem.name}_{cache_suffix}"
+            cache_path = cache_stem.with_suffix(".npy")
+            if not cache_refresh and cache_path.exists():
+                return np.load(cache_path, allow_pickle=False)
+        array = cv2.imread(src_path, read_flag)
+        if array is None:
+            raise FileNotFoundError(f"Failed to read source array: {src_path}")
+        if read_flag == cv2.IMREAD_COLOR:
+            array = cv2.cvtColor(array, cv2.COLOR_BGR2RGB)
+        elif read_flag == cv2.IMREAD_UNCHANGED and array.ndim == 3 and array.shape[2] == 4:
+            array = cv2.cvtColor(array, cv2.COLOR_BGRA2BGR)
+            array = cv2.cvtColor(array, cv2.COLOR_BGR2RGB)
+        if is_label:
+            array = array.astype(np.uint8)
+        array = _resize_numpy_array(array, resize_size)
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(cache_path, array, allow_pickle=False)
+        return array
 
     img_path, lab_path = _find_png_paths(case, base_dir, split, task)
+    if img_path is None and cache_mode == "disk":
+        img_path = str(Path(base_dir) / "data" / "images" / f"{_strip_known_image_extension(case)}.png")
+    if lab_path is None and cache_mode == "disk":
+        lab_path = str(Path(base_dir) / "data" / get_task_label_dir(base_dir, task) / f"{_strip_known_image_extension(case)}.png")
     if img_path is None:
         raise FileNotFoundError(f"Image file not found for case={case!r} under {base_dir}/data/images")
     if lab_path is None:
         raise FileNotFoundError(
             f"Label file not found for case={case!r} under task-specific labels in {base_dir}/data"
         )
-    img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
-    if img.ndim == 3:
-        if img.shape[2] == 4:
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    lab = cv2.imread(lab_path, cv2.IMREAD_GRAYSCALE).astype(np.uint8)
-    original_label = _normalize_label_array(lab.copy())
-    original_shape = np.array(lab.shape[:2], dtype=np.int64)
-    img = _resize_numpy_array(img, (target_h, target_w))
-    if split != "test":
-        lab = _resize_numpy_array(lab, (target_h, target_w))
+    if cache_mode == "disk" and not cache_refresh:
+        img_cache_path = _build_cache_path(img_path, base_dir, (target_h, target_w))
+        lab_cache_path = _build_cache_path(lab_path, base_dir, (target_h, target_w))
+        if split != "test" and img_cache_path.exists() and lab_cache_path.exists():
+            sample = {
+                "image": np.load(img_cache_path, allow_pickle=False),
+                "label": np.load(lab_cache_path, allow_pickle=False),
+                "label_path": lab_path,
+                "original_label": np.load(lab_cache_path, allow_pickle=False),
+                "original_shape": np.array(np.load(lab_cache_path, allow_pickle=False).shape[:2], dtype=np.int64),
+            }
+            if depth_channels == 13:
+                depth1_path = str(Path(base_dir) / "data" / f"depth1c_slices_uint{int(depth_uint)}" / f"{_strip_known_image_extension(case)}.png")
+                depth3_path = str(Path(base_dir) / "data" / f"depth3c_slices_uint{int(depth_uint)}" / f"{_strip_known_image_extension(case)}.png")
+                depth1_cache_path = _build_cache_path(depth1_path, base_dir, (target_h, target_w))
+                depth3_cache_path = _build_cache_path(depth3_path, base_dir, (target_h, target_w))
+                sample["depth1"] = np.load(depth1_cache_path, allow_pickle=False) if depth1_cache_path.exists() else None
+                sample["depth3"] = np.load(depth3_cache_path, allow_pickle=False) if depth3_cache_path.exists() else None
+            elif depth_channels == 3:
+                depth3_path = str(Path(base_dir) / "data" / f"depth3c_slices_uint{int(depth_uint)}" / f"{_strip_known_image_extension(case)}.png")
+                depth3_cache_path = _build_cache_path(depth3_path, base_dir, (target_h, target_w))
+                sample["depth3"] = np.load(depth3_cache_path, allow_pickle=False) if depth3_cache_path.exists() else None
+            elif depth_channels == 1:
+                depth1_path = str(Path(base_dir) / "data" / f"depth1c_slices_uint{int(depth_uint)}" / f"{_strip_known_image_extension(case)}.png")
+                depth1_cache_path = _build_cache_path(depth1_path, base_dir, (target_h, target_w))
+                sample["depth1"] = np.load(depth1_cache_path, allow_pickle=False) if depth1_cache_path.exists() else None
+            return idx, sample
+
+    lab_original = cv2.imread(lab_path, cv2.IMREAD_GRAYSCALE)
+    if lab_original is None:
+        raise FileNotFoundError(f"Failed to read label file: {lab_path}")
+    lab_original = lab_original.astype(np.uint8)
+    original_label = _normalize_label_array(lab_original.copy())
+    original_shape = np.array(lab_original.shape[:2], dtype=np.int64)
+    img = _load_or_build_cached_array(img_path, cv2.IMREAD_UNCHANGED, (target_h, target_w))
+    if split == "test":
+        lab = lab_original
+    else:
+        lab = _load_or_build_cached_array(lab_path, cv2.IMREAD_GRAYSCALE, (target_h, target_w), is_label=True)
     sample = {"image": img, "label": lab, "label_path": lab_path, "original_label": original_label, "original_shape": original_shape}
-    
-    def _load_depth(ch, case, base_dir, split, depth_uint, target_h, target_w):
-        path = _find_depth_png_path(case, base_dir, split, depth_channels=ch, depth_uint=depth_uint)
-        if not path:
-            return None
-        if ch == 1:
-            arr = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-        else:
-            arr = cv2.imread(path, cv2.IMREAD_COLOR)
-            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-        return _resize_numpy_array(arr, (target_h, target_w))
     if depth_channels == 13:
-        sample["depth1"] = _load_depth(1, case, base_dir, split, depth_uint, target_h, target_w)
-        sample["depth3"] = _load_depth(3, case, base_dir, split, depth_uint, target_h, target_w)
+        depth1_path = _find_depth_png_path(case, base_dir, split, depth_channels=1, depth_uint=depth_uint)
+        depth3_path = _find_depth_png_path(case, base_dir, split, depth_channels=3, depth_uint=depth_uint)
+        sample["depth1"] = None if depth1_path is None else _load_or_build_cached_array(depth1_path, cv2.IMREAD_UNCHANGED, (target_h, target_w))
+        sample["depth3"] = None if depth3_path is None else _load_or_build_cached_array(depth3_path, cv2.IMREAD_COLOR, (target_h, target_w))
     elif depth_channels == 3:
-        sample["depth3"] = _load_depth(3, case, base_dir, split, depth_uint, target_h, target_w)
+        depth3_path = _find_depth_png_path(case, base_dir, split, depth_channels=3, depth_uint=depth_uint)
+        sample["depth3"] = None if depth3_path is None else _load_or_build_cached_array(depth3_path, cv2.IMREAD_COLOR, (target_h, target_w))
     elif depth_channels == 1:
-        sample["depth1"] = _load_depth(1, case, base_dir, split, depth_uint, target_h, target_w)
+        depth1_path = _find_depth_png_path(case, base_dir, split, depth_channels=1, depth_uint=depth_uint)
+        sample["depth1"] = None if depth1_path is None else _load_or_build_cached_array(depth1_path, cv2.IMREAD_UNCHANGED, (target_h, target_w))
     return idx, sample
 
 
@@ -188,6 +249,8 @@ class BaseDataSets(Dataset):
         for_inference=False,
         is_depth=None,
         task=None,
+        cache_mode="none",
+        cache_refresh=False,
     ):
         self._base_dir, self.split, self.transform = base_dir, split, transform
         self.ops_weak, self.ops_strong, self.fold = ops_weak, ops_strong, fold
@@ -205,6 +268,8 @@ class BaseDataSets(Dataset):
         self.for_inference = for_inference
         self.is_depth = bool(depth_channels) if is_depth is None else bool(is_depth)
         self.task = task
+        self.cache_mode = cache_mode
+        self.cache_refresh = cache_refresh
         assert bool(ops_weak) == bool(ops_strong)
         self.sample_list = _load_sample_list(self._base_dir, self.split, fold=self.fold, use_val=self.use_val)
         self.sample_list = _apply_sample_selection(
@@ -243,6 +308,8 @@ class BaseDataSets(Dataset):
                 self.depth_uint,
                 self.strategy,
                 self.task,
+                self.cache_mode,
+                self.cache_refresh,
             )
             for idx, case in enumerate(self.sample_list)
         ]
@@ -271,8 +338,6 @@ class BaseDataSets(Dataset):
 
     def _to_train_or_val_item(self, sample, idx):
         image, depth3, depth1 = self._normalize_inputs(sample["image"], depth3=sample.get("depth3"), depth1=sample.get("depth1"))
-        original_label = sample["original_label"]
-        original_shape = sample["original_shape"]
         sample["image"] = image
         if depth3 is not None:
             sample["depth3"] = depth3
@@ -282,8 +347,6 @@ class BaseDataSets(Dataset):
             sample = self.transform(sample)
         else:
             sample = _build_tensor_sample(sample["image"], sample["label"], depth3, depth1)
-        sample["original_label"] = original_label
-        sample["original_shape"] = original_shape
         sample["idx"] = idx
         return sample
 
@@ -310,7 +373,8 @@ class BaseDataSets(Dataset):
                 self._base_dir, self.split,
                 *self.resize_size, self.num_classes,
                 self.depth_channels, self.depth_uint,
-                self.strategy, self.task)[1]
+                self.strategy, self.task,
+                self.cache_mode, self.cache_refresh)[1]
 
         if self.split in {"train", "val", "test"} and not self.for_inference:
             return self._to_train_or_val_item(sample, idx)

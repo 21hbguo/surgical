@@ -34,14 +34,13 @@ from utils.common import CHECKPOINT_INFO_KEYS, build_run_output_dir, get_fold_se
 
 warnings.filterwarnings('ignore', message='.*timm.models.layers.*')
 
-SUMMARY_METRIC_PAIRS = (
+METRIC_PAIRS = (
     ('Dice', 'dice'),
     ('IoU', 'iou'),
     ('Precision', 'precision'),
     ('Recall', 'recall'),
     ('Acc', 'acc'),
 )
-PER_CLASS_METRIC_PAIRS = SUMMARY_METRIC_PAIRS
 TEST_NUM_WORKERS = 4
 
 

@@ -3,6 +3,15 @@ import torch
 import torch.nn.functional as F
 
 
+METRIC_PAIRS = (
+    ("Dice", "dice"),
+    ("IoU", "iou"),
+    ("Precision", "precision"),
+    ("Recall", "recall"),
+    ("Acc", "acc"),
+)
+
+
 def dice_score(pred, target, smooth=1e-6):
     pred_flat = pred.contiguous().view(-1)
     target_flat = target.contiguous().view(-1)

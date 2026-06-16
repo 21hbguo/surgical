@@ -71,7 +71,7 @@ def finalize_test_args(args):
 
 def format_args_for_logging(args):
     data = vars(args)
-    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping", "retrain"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
+    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping", "retrain", "cache_mode", "cache_refresh"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
 
 
 class StrategyArgumentParser(argparse.ArgumentParser):
@@ -142,26 +142,29 @@ def add_common_args(parser, result_root_default, test_mode=False):
 
 def add_train_args(parser):
     parser.add_argument("--labeled_num", type=float, default=10, help="Labeled percentage. Examples: 0.1=0.1%%, 1=1%%, 10=10%%.")
-    parser.add_argument("--labeled_bs", type=int, default=2)
-    parser.add_argument("--unlabeled_bs", type=int, default=2)
-    parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"])
-    parser.add_argument("--max_iterations", type=int, default=30000)
-    parser.add_argument("--val_iter", type=int, default=300)
-    parser.add_argument("--poly_power", type=float, default=0.9)
-    parser.add_argument("--grad_clip", type=float, default=0.0)
-    parser.add_argument("--lr_scheduler", type=str, default="poly")
-    parser.add_argument("--lr_warmup_iters", type=int, default=0)
-    parser.add_argument("--lr_warmup_ratio", type=float, default=0)
-    parser.add_argument("--lr_min_ratio", type=float, default=0)
-    parser.add_argument("--use_checkpoint", action="store_true", default=False)
-    parser.add_argument("--retrain", action="store_true", default=False)
-    parser.add_argument("--freeze", action="store_true", default=False)
+    parser.add_argument("--labeled_bs", type=int, default=2, help="Number of labeled samples per training batch.")
+    parser.add_argument("--unlabeled_bs", type=int, default=2, help="Number of unlabeled samples per training batch.")
+    parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"], help="Train subset sampling rule when labeled_num selects only part of the train set.")
+    parser.add_argument("--max_iterations", type=int, default=30000, help="Total training iterations.")
+    parser.add_argument("--val_iter", type=int, default=300, help="Run validation every N iterations.")
+    parser.add_argument("--poly_power", type=float, default=0.9, help="Power factor for poly learning-rate decay.")
+    parser.add_argument("--grad_clip", type=float, default=0.0, help="Gradient clipping max norm. 0 disables clipping.")
+    parser.add_argument("--lr_scheduler", type=str, default="poly", help="Learning-rate scheduler name.")
+    parser.add_argument("--lr_warmup_iters", type=int, default=0, help="Warmup iterations before the main scheduler starts.")
+    parser.add_argument("--lr_warmup_ratio", type=float, default=0, help="Initial warmup lr ratio relative to base lr.")
+    parser.add_argument("--lr_min_ratio", type=float, default=0, help="Minimum lr ratio relative to base lr.")
+    parser.add_argument("--use_checkpoint", action="store_true", default=False, help="Enable model checkpointing features supported by the model implementation.")
+    parser.add_argument("--retrain", action="store_true", default=False, help="Retrain even when the target snapshot directory already contains completed checkpoints.")
+    parser.add_argument("--freeze", action="store_true", default=False, help="Freeze supported pretrained backbone parameters before training.")
     parser.add_argument("--amp", action="store_true", default=True, help="Enable automatic mixed precision training")
     parser.add_argument("--compile", action="store_true", default=True, help="Enable torch.compile for model acceleration")
-    parser.add_argument("--debug", action="store_true", default=False)
-    parser.add_argument("--no_val", action="store_true", default=False)
+    parser.add_argument("--debug", action="store_true", default=False, help="Run with reduced train and val subsets for quick debugging.")
+    parser.add_argument("--no_val", action="store_true", default=False, help="Disable validation and save only the final checkpoint.")
     parser.add_argument("--early_stopping", type=float, default=0.3, help="Early stopping patience as fraction of max_iterations (e.g. 0.3). 0=disabled.")
     parser.add_argument("--pth", type=str, default=None, choices=["best", "final", "latest"], help=argparse.SUPPRESS)
+    parser.add_argument("--data-format", type=str, default="png", choices=["png", "h5"], help="Training data storage format.")
+    parser.add_argument("--cache_mode", type=str, default="disk", choices=["none", "disk"], help="Disk cache mode for train and val resized arrays.")
+    parser.add_argument("--cache_refresh", action="store_true", default=False, help="Rebuild train and val disk cache even when cached arrays already exist.")
 
 
 def add_test_args(parser):

@@ -81,6 +81,8 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(args.lr, 3e-5)
         self.assertEqual(args.filter_num, 16)
         self.assertEqual(args.depth_uint, 16)
+        self.assertEqual(args.cache_mode, "disk")
+        self.assertFalse(args.cache_refresh)
         self.assertEqual(args.consistency, 0.1)
         self.assertEqual(args.ema_decay, 0.99)
         self.assertFalse(hasattr(args, "proto_feature_dim"))

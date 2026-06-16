@@ -16,7 +16,7 @@ from core.runtime import (
     resolve_train_folds,
     resolve_train_run_args,
 )
-from data import BaseDataSets, OneStreamBatchSampler, RandomGenerator, TwoStreamBatchSampler
+from data import BaseDataSets, H5DataSets, OneStreamBatchSampler, RandomGenerator, TwoStreamBatchSampler
 from models.factory import create_model
 from strategies import create_strategy
 from utils.lr_scheduler import build_lr_scheduler
@@ -46,8 +46,12 @@ def create_dataloaders(args):
         repeat_factor = (min_length + len(values) - 1) // len(values)
         return (values * repeat_factor)[:min_length]
 
-    depth_channels = args.use_depth if args.use_depth else None
-    depth_uint = int(args.depth_uint)
+    data_format = getattr(args, "data_format", "png")
+    cache_mode = getattr(args, "cache_mode", "none")
+    cache_refresh = getattr(args, "cache_refresh", False)
+    DatasetClass = H5DataSets if data_format == "h5" else BaseDataSets
+    depth_channels = args.use_depth if args.use_depth and data_format != "h5" else None
+    depth_uint = int(args.depth_uint) if data_format != "h5" else None
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num, args.fold)
     if args.debug:
         train_num, val_num, debug_labeled_slice = 100, 50, min(20, labeled_slice)
@@ -56,51 +60,41 @@ def create_dataloaders(args):
     else:
         train_num, val_num, debug_labeled_slice = labeled_slice, None, None
 
-    train_dataset = BaseDataSets(
-        base_dir=args.root_path,
-        split="train",
-        fold=args.fold,
-        num=train_num,
-        resize_size=tuple(args.resize_size),
-        load_mode=args.load_mode,
-        num_classes=args.num_classes,
-        depth_channels=depth_channels,
-        depth_uint=depth_uint,
-        strategy=args.way if depth_channels else None,
-        normalize_method=args.normalize,
-        sampling=args.sampling,
-        task=args.task,
+    train_kwargs = dict(
+        base_dir=args.root_path, split="train", fold=args.fold, num=train_num,
+        resize_size=tuple(args.resize_size), num_classes=args.num_classes,
+        normalize_method=args.normalize, sampling=args.sampling, task=args.task,
+        cache_mode=cache_mode, cache_refresh=cache_refresh,
         transform=RandomGenerator(
-            resize_size=tuple(args.resize_size),
-            is_val=False,
-            root_path=args.root_path,
-            depth_channels=depth_channels,
+            resize_size=tuple(args.resize_size), is_val=False,
+            root_path=args.root_path, depth_channels=depth_channels,
         ),
     )
+    if data_format != "h5":
+        train_kwargs.update(dict(
+            load_mode=args.load_mode, depth_channels=depth_channels, depth_uint=depth_uint,
+            strategy=args.way if depth_channels else None,
+        ))
+    train_dataset = DatasetClass(**train_kwargs)
 
     val_dataset = None
     if not args.no_val:
-        val_dataset = BaseDataSets(
-            base_dir=args.root_path,
-            split="val",
-            fold=args.fold,
-            num=val_num,
-            resize_size=tuple(args.resize_size),
-            load_mode=args.load_mode,
-            num_classes=args.num_classes,
-            depth_channels=depth_channels,
-            depth_uint=depth_uint,
-            strategy=args.way if depth_channels else None,
-            normalize_method=args.normalize,
-            sampling=args.sampling,
-            task=args.task,
+        val_kwargs = dict(
+            base_dir=args.root_path, split="val", fold=args.fold, num=val_num,
+            resize_size=tuple(args.resize_size), num_classes=args.num_classes,
+            normalize_method=args.normalize, sampling=args.sampling, task=args.task,
+            cache_mode=cache_mode, cache_refresh=cache_refresh,
             transform=RandomGenerator(
-                resize_size=tuple(args.resize_size),
-                is_val=True,
-                root_path=args.root_path,
-                depth_channels=depth_channels,
+                resize_size=tuple(args.resize_size), is_val=True,
+                root_path=args.root_path, depth_channels=depth_channels,
             ),
         )
+        if data_format != "h5":
+            val_kwargs.update(dict(
+                load_mode=args.load_mode, depth_channels=depth_channels, depth_uint=depth_uint,
+                strategy=args.way if depth_channels else None,
+            ))
+        val_dataset = DatasetClass(**val_kwargs)
 
     def worker_init_fn(worker_id):
         seed = args.seed + worker_id

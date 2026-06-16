@@ -17,13 +17,7 @@ except ImportError:  # pragma: no cover - optional dependency
     portalocker = None
 
 
-DISPLAY_METRIC_PAIRS = (
-    ("Dice", "dice"),
-    ("IoU", "iou"),
-    ("Precision", "precision"),
-    ("Recall", "recall"),
-    ("Acc", "acc"),
-)
+from utils.metrics import METRIC_PAIRS as DISPLAY_METRIC_PAIRS
 
 
 def build_export_experiment_name(args, model_name: str, total_folds: int, effective_lr: float) -> str:
