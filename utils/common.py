@@ -42,17 +42,7 @@ def _resolve_train_slice_files(root_path, fold=None):
             return list_files
         fallback = os.path.join(root_path, "train.list")
         return [fallback] if os.path.exists(fallback) else []
-
-    preferred = os.path.join(root_path, f"train_slices_f{fold}.list")
-    fallback = os.path.join(root_path, "train_slices.list")
-    generic = os.path.join(root_path, "train.list")
-    if os.path.exists(preferred):
-        return [preferred]
-    if os.path.exists(fallback):
-        return [fallback]
-    if os.path.exists(generic):
-        return [generic]
-    return []
+    return [os.path.join(root_path, f"train_slices_f{fold}.list")]
 
 
 def get_task_label_dir(root_path, task):

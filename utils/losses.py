@@ -60,35 +60,58 @@ class CoordLoss(nn.Module):
         loss = (loss_per_class * gt_active).sum() / (gt_active.sum() + self.eps)
         return loss
     
+# class DiceLoss(nn.Module):
+#     def __init__(self, n_classes):
+#         super(DiceLoss, self).__init__()
+#         self.n_classes = n_classes
+#         self.smooth = 1e-5
+
+#     def _one_hot_encoder(self, input_tensor):
+#         if input_tensor.dim() == 4:
+#             input_tensor = input_tensor.squeeze(1)
+#         return (
+#             F.one_hot(input_tensor.long(), num_classes=self.n_classes)
+#             .permute(0, 3, 1, 2)
+#             .float()
+#         )
+
+#     def forward(self, inputs, target, softmax=False):
+#         if softmax:
+#             inputs = torch.softmax(inputs, dim=1)
+#         target = self._one_hot_encoder(target)
+#         assert inputs.size() == target.size()
+
+#         inputs_flat = inputs.reshape(-1, self.n_classes)
+#         target_flat = target.reshape(-1, self.n_classes)
+
+#         intersection = (inputs_flat * target_flat).sum(0)
+#         cardinality = inputs_flat.sum(0) + target_flat.sum(0)
+
+#         dice_score = (2.0 * intersection + self.smooth) / (cardinality + self.smooth)
+#         return 1 - dice_score.mean()
+
 class DiceLoss(nn.Module):
     def __init__(self, n_classes):
         super(DiceLoss, self).__init__()
         self.n_classes = n_classes
         self.smooth = 1e-5
 
-    def _one_hot_encoder(self, input_tensor):
-        if input_tensor.dim() == 4:
-            input_tensor = input_tensor.squeeze(1)
-        return (
-            F.one_hot(input_tensor.long(), num_classes=self.n_classes)
-            .permute(0, 3, 1, 2)
-            .float()
-        )
+    def _one_hot_encoder(self, target):
+        if target.dim() == 4:
+            target = target.squeeze(1)
+        target = F.one_hot(target.long(), num_classes=self.n_classes)
+        target = target.permute(0, 3, 1, 2).float()
+        return target
 
     def forward(self, inputs, target, softmax=False):
         if softmax:
             inputs = torch.softmax(inputs, dim=1)
-        target = self._one_hot_encoder(target)
+        target = self._one_hot_encoder(target).to(inputs.device)
         assert inputs.size() == target.size()
-
-        inputs_flat = inputs.reshape(-1, self.n_classes)
-        target_flat = target.reshape(-1, self.n_classes)
-
-        intersection = (inputs_flat * target_flat).sum(0)
-        cardinality = inputs_flat.sum(0) + target_flat.sum(0)
-
+        intersection = (inputs * target).sum(dim=(0, 2, 3))
+        cardinality = inputs.sum(dim=(0, 2, 3)) + target.sum(dim=(0, 2, 3))
         dice_score = (2.0 * intersection + self.smooth) / (cardinality + self.smooth)
-        return 1 - dice_score.mean()
+        return 1.0 - dice_score.mean()
 
 def softmax_mse_loss(input_logits, target_logits, sigmoid=False):
     assert input_logits.size() == target_logits.size()

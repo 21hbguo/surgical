@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import tempfile
 import unittest
 from argparse import Namespace
@@ -17,6 +18,7 @@ import core.train as train_core
 from core.testing.export import build_summary_row
 from core.testing.visualization import colorize_test_mask
 from data import BaseDataSets
+from data.transforms import RandomGenerator, _normalize_array
 from strategies import create_strategy
 from strategies import semi_dycon, semi_uncertainty_mt, semi_w2s
 from strategies.specs import resolve_strategy_input_settings
@@ -384,6 +386,21 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertEqual(common.patients_to_slices(self.root_path, 1), 2)
         self.assertEqual(common.patients_to_slices(self.root_path, 40), 80)
 
+    def test_fold_specific_train_list_does_not_fallback_to_global_train_list(self):
+        with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_a\n")
+        with self.assertRaises(FileNotFoundError):
+            common.patients_to_slices(self.root_path, 40, fold=0)
+        with self.assertRaises(FileNotFoundError):
+            BaseDataSets(
+                base_dir=self.root_path,
+                split="train",
+                fold=0,
+                resize_size=(2, 2),
+                load_mode="path",
+                task=1,
+            )
+
     def test_create_dataloaders_keeps_small_positive_semi_supervised_run_trainable(self):
         for index in range(5):
             image = np.full((4, 4, 3), 32 + index, dtype=np.uint8)
@@ -635,6 +652,68 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         test_sample = test_dataset[0]
         self.assertEqual(tuple(test_sample["image"].shape), (3, 4, 5))
         self.assertEqual(test_sample["original_shape"].tolist(), [4, 5])
+
+    def test_png_float_depth_keeps_preprocessed_values(self):
+        _write_png(Path(self.root_path) / "data" / "images" / "case_png_float.png", np.full((2, 2, 3), 100, dtype=np.uint8))
+        _write_png(Path(self.root_path) / "data" / "labels_task1_binary" / "case_png_float.png", np.array([[0, 255], [255, 0]], dtype=np.uint8))
+        with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_png_float\n")
+        dataset = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", normalize_method="255", task=1)
+        sample = dataset[0]
+        self.assertAlmostEqual(float(sample["image"].max()), 100.0 / 255.0, places=6)
+        float_depth = np.array([[1000.0, 1200.0], [1400.0, 1600.0]], dtype=np.float32)
+        np.testing.assert_allclose(_normalize_array(float_depth, method="255"), float_depth, atol=1e-6)
+
+    def test_h5_dataset_loads_depth_inputs(self):
+        image = np.linspace(0.1, 0.9, num=3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
+        label = np.zeros((1, 4, 5), dtype=np.uint8)
+        depth1 = np.linspace(0.2, 0.8, num=1 * 4 * 5, dtype=np.float32).reshape(1, 4, 5)
+        depth3 = np.linspace(0.3, 0.7, num=3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
+        with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_h5_depth\n")
+        with h5py.File(Path(self.root_path) / "data" / "images" / "case_h5_depth.h5", "w") as handle:
+            handle.create_dataset("img", data=image)
+        with h5py.File(Path(self.root_path) / "data" / "labels_task1_binary" / "case_h5_depth.h5", "w") as handle:
+            handle.create_dataset("img", data=label)
+        (Path(self.root_path) / "data" / "depth1c_slices_uint16").mkdir(parents=True, exist_ok=True)
+        (Path(self.root_path) / "data" / "depth3c_slices_uint16").mkdir(parents=True, exist_ok=True)
+        with h5py.File(Path(self.root_path) / "data" / "depth1c_slices_uint16" / "case_h5_depth.h5", "w") as handle:
+            handle.create_dataset("img", data=depth1)
+        with h5py.File(Path(self.root_path) / "data" / "depth3c_slices_uint16" / "case_h5_depth.h5", "w") as handle:
+            handle.create_dataset("img", data=depth3)
+        from data import H5DataSets
+        dataset1 = H5DataSets(base_dir=self.root_path, split="train", depth_channels=1, depth_uint=16, task=1)
+        sample1 = dataset1[0]
+        self.assertEqual(tuple(sample1["depth1"].shape), (1, 4, 5))
+        np.testing.assert_allclose(sample1["depth1"].numpy(), depth1, atol=1e-6)
+        dataset13 = H5DataSets(base_dir=self.root_path, split="train", depth_channels=13, depth_uint=16, task=1)
+        sample13 = dataset13[0]
+        self.assertEqual(tuple(sample13["depth1"].shape), (1, 4, 5))
+        self.assertEqual(tuple(sample13["depth3"].shape), (3, 4, 5))
+        np.testing.assert_allclose(sample13["depth3"].numpy(), depth3, atol=1e-6)
+
+    def test_random_generator_keeps_chw_shapes_for_h5_style_inputs(self):
+        sample = {
+            "image": np.arange(3 * 4 * 4, dtype=np.float32).reshape(3, 4, 4),
+            "label": np.arange(4 * 4, dtype=np.uint8).reshape(4, 4) % 2,
+            "depth1": np.arange(1 * 4 * 4, dtype=np.float32).reshape(1, 4, 4),
+            "depth3": np.arange(3 * 4 * 4, dtype=np.float32).reshape(3, 4, 4),
+        }
+        transform = RandomGenerator(resize_size=None, is_val=False)
+        old_random = random.random
+        old_randint = np.random.randint
+        try:
+            random.random = lambda: 0.0
+            values = iter([1, 0])
+            np.random.randint = lambda *args, **kwargs: next(values)
+            out = transform(sample)
+        finally:
+            random.random = old_random
+            np.random.randint = old_randint
+        self.assertEqual(tuple(out["image"].shape), (3, 4, 4))
+        self.assertEqual(tuple(out["label"].shape), (4, 4))
+        self.assertEqual(tuple(out["depth1"].shape), (1, 4, 4))
+        self.assertEqual(tuple(out["depth3"].shape), (3, 4, 4))
 
     def test_colorize_mask_uses_fixed_ten_class_mapping(self):
         mask = np.array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]], dtype=np.uint8)

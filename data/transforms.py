@@ -6,22 +6,27 @@ from scipy import ndimage
 from scipy.ndimage import zoom
 
 
-def _normalize_array(array: np.ndarray, method: str = "minmax") -> np.ndarray:
+def _scale_array_by_dtype(array: np.ndarray) -> np.ndarray:
+    array_dtype = array.dtype
     array = array.astype(np.float32)
+    if np.issubdtype(array_dtype, np.integer):
+        return array / float(np.iinfo(array_dtype).max)
+    return array
+
+
+def _normalize_array(array: np.ndarray, method: str = "minmax") -> np.ndarray:
     if method == "minmax":
+        array = array.astype(np.float32)
         a_min, a_max = array.min(), array.max()
         if a_max > a_min:
             return (array - a_min) / (a_max - a_min)
         return np.zeros_like(array)
     if method == "255":
-        if array.max() > 1.0:
-            return array / 255.0
-        return array
+        return _scale_array_by_dtype(array)
     if method == "imagenet":
+        array = _scale_array_by_dtype(array)
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        if array.max() > 1.0:
-            array = array / 255.0
         if array.ndim == 3 and array.shape[2] == 3:
             for c in range(3):
                 array[..., c] = (array[..., c] - mean[c]) / std[c]
@@ -30,7 +35,7 @@ def _normalize_array(array: np.ndarray, method: str = "minmax") -> np.ndarray:
         elif array.ndim == 2:
             array = (array - mean[0]) / std[0]
         return array
-    return array
+    return array.astype(np.float32)
 
 
 def _resize_numpy_array(v: np.ndarray, target_size: tuple) -> np.ndarray:
@@ -96,6 +101,21 @@ def depth_to_rgb(depth: np.ndarray) -> np.ndarray:
     return depth
 
 
+def _get_spatial_axes(array: np.ndarray):
+    if array.ndim < 2:
+        raise ValueError(f"Expected array with at least 2 dims, got shape={array.shape}")
+    if array.ndim == 2:
+        return 0, 1
+    if array.ndim == 3 and array.shape[-1] in (1, 3):
+        return 0, 1
+    return -2, -1
+
+
+def _get_flip_axis(array: np.ndarray, spatial_axis: int):
+    h_axis, w_axis = _get_spatial_axes(array)
+    return h_axis if spatial_axis == 0 else w_axis
+
+
 class RandomGenerator(object):
     def __init__(self, resize_size=None, is_val=False, root_path=None, depth_channels=None):
         self.resize_size, self.is_val = resize_size, is_val
@@ -124,25 +144,25 @@ class RandomGenerator(object):
 
     def _random_rot_flip(self, img, lab, depth3, depth1):
         k = np.random.randint(0, 4)
-        img = np.rot90(img, k)
+        img = np.rot90(img, k, axes=_get_spatial_axes(img))
         lab = np.rot90(lab, k)
         axis = np.random.randint(0, 2)
-        img = np.flip(img, axis=axis).copy()
+        img = np.flip(img, axis=_get_flip_axis(img, axis)).copy()
         lab = np.flip(lab, axis=axis).copy()
         if depth3 is not None:
-            depth3 = np.rot90(depth3, k)
-            depth3 = np.flip(depth3, axis=axis).copy()
+            depth3 = np.rot90(depth3, k, axes=_get_spatial_axes(depth3))
+            depth3 = np.flip(depth3, axis=_get_flip_axis(depth3, axis)).copy()
         if depth1 is not None:
-            depth1 = np.rot90(depth1, k)
-            depth1 = np.flip(depth1, axis=axis).copy()
+            depth1 = np.rot90(depth1, k, axes=_get_spatial_axes(depth1))
+            depth1 = np.flip(depth1, axis=_get_flip_axis(depth1, axis)).copy()
         return img, lab, depth3, depth1
 
     def _random_rotate(self, img, lab, depth3, depth1):
         angle = np.random.randint(-20, 20)
-        img = ndimage.rotate(img, angle, order=0, reshape=False, mode="reflect")
+        img = ndimage.rotate(img, angle, axes=_get_spatial_axes(img), order=0, reshape=False, mode="reflect")
         lab = ndimage.rotate(lab, angle, order=0, reshape=False, mode="reflect")
         if depth3 is not None:
-            depth3 = ndimage.rotate(depth3, angle, order=0, reshape=False, mode="reflect")
+            depth3 = ndimage.rotate(depth3, angle, axes=_get_spatial_axes(depth3), order=0, reshape=False, mode="reflect")
         if depth1 is not None:
-            depth1 = ndimage.rotate(depth1, angle, order=0, reshape=False, mode="reflect")
+            depth1 = ndimage.rotate(depth1, angle, axes=_get_spatial_axes(depth1), order=0, reshape=False, mode="reflect")
         return img, lab, depth3, depth1

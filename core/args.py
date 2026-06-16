@@ -124,7 +124,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--strong", type=str, default="s", nargs="?", const=None, choices=["s", "t"], help="Noise location: t=teacher, s=student, --strong without value=none")
     parser.add_argument("--load_mode", type=str, default="data", choices=["data", "path"])
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--resnet_variant", type=str, default="resnet34")
     parser.add_argument("--pretrain_root", type=str, default="../pre_train_ckp/")
     parser.add_argument("--depth_pretrain_path", type=str, default="../pre_train_ckp/resnet34-depth-pretrain.pth")
@@ -146,9 +146,9 @@ def add_train_args(parser):
     parser.add_argument("--unlabeled_bs", type=int, default=2, help="Number of unlabeled samples per training batch.")
     parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"], help="Train subset sampling rule when labeled_num selects only part of the train set.")
     parser.add_argument("--max_iterations", type=int, default=30000, help="Total training iterations.")
-    parser.add_argument("--val_iter", type=int, default=300, help="Run validation every N iterations.")
+    parser.add_argument("--val_iter", type=int, default=400, help="Run validation every N iterations.")
     parser.add_argument("--poly_power", type=float, default=0.9, help="Power factor for poly learning-rate decay.")
-    parser.add_argument("--grad_clip", type=float, default=0.0, help="Gradient clipping max norm. 0 disables clipping.")
+    parser.add_argument("--grad_clip", type=float, default=1.0, help="Gradient clipping max norm. 0 disables clipping.")
     parser.add_argument("--lr_scheduler", type=str, default="poly", help="Learning-rate scheduler name.")
     parser.add_argument("--lr_warmup_iters", type=int, default=0, help="Warmup iterations before the main scheduler starts.")
     parser.add_argument("--lr_warmup_ratio", type=float, default=0, help="Initial warmup lr ratio relative to base lr.")
@@ -162,7 +162,7 @@ def add_train_args(parser):
     parser.add_argument("--no_val", action="store_true", default=False, help="Disable validation and save only the final checkpoint.")
     parser.add_argument("--early_stopping", type=float, default=0.3, help="Early stopping patience as fraction of max_iterations (e.g. 0.3). 0=disabled.")
     parser.add_argument("--pth", type=str, default=None, choices=["best", "final", "latest"], help=argparse.SUPPRESS)
-    parser.add_argument("--data-format", type=str, default="png", choices=["png", "h5"], help="Training data storage format.")
+    parser.add_argument("--data-format", type=str, default="h5", choices=["png", "h5"], help="Training data storage format.")
 
 
 def add_test_args(parser):
@@ -171,7 +171,7 @@ def add_test_args(parser):
     parser.add_argument("--unlabeled_bs", type=int, default=2)
     parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"])
     parser.add_argument("--max_iterations", type=int, default=30000)
-    parser.add_argument("--grad_clip", type=float, default=0.0)
+    parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--checkpoint-type", "--pth", "--pth_type", dest="requested_checkpoint_type", type=str, default="best", choices=["best", "final", "latest"])
     parser.add_argument("--rgb", type=int, default=0, choices=[0, 1, 2, 3], help="0=off, 1=pred overlay, 2=label/pred side-by-side, 3=label only")

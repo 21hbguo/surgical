@@ -48,8 +48,8 @@ def create_dataloaders(args):
 
     data_format = args.data_format
     DatasetClass = H5DataSets if data_format == "h5" else BaseDataSets
-    depth_channels = args.use_depth if args.use_depth and data_format != "h5" else None
-    depth_uint = int(args.depth_uint) if data_format != "h5" else None
+    depth_channels = args.use_depth if args.use_depth else None
+    depth_uint = int(args.depth_uint) if args.use_depth else 16
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num, args.fold)
     if args.debug:
         train_num, val_num, debug_labeled_slice = 100, 50, min(20, labeled_slice)
@@ -71,6 +71,8 @@ def create_dataloaders(args):
             resize_size=tuple(args.resize_size), normalize_method=args.normalize,
             load_mode=args.load_mode, depth_channels=depth_channels, depth_uint=depth_uint,
         ))
+    else:
+        train_kwargs.update(dict(depth_channels=depth_channels, depth_uint=depth_uint))
     train_dataset = DatasetClass(**train_kwargs)
 
     val_dataset = None
@@ -88,6 +90,8 @@ def create_dataloaders(args):
                 resize_size=tuple(args.resize_size), normalize_method=args.normalize,
                 load_mode=args.load_mode, depth_channels=depth_channels, depth_uint=depth_uint,
             ))
+        else:
+            val_kwargs.update(dict(depth_channels=depth_channels, depth_uint=depth_uint))
         val_dataset = DatasetClass(**val_kwargs)
 
     def worker_init_fn(worker_id):

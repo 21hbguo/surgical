@@ -5,6 +5,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 from PIL import Image
+from scipy.ndimage import zoom
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_dir", type=str, required=True)
@@ -50,8 +51,14 @@ def process_one(src_path_str, input_dir_str, output_dir_str, resize_h, resize_w)
     src_min = arr.min().item()
     src_max = arr.max().item()
     if resize_h > 0 and resize_w > 0:
-        image = image.resize((resize_w, resize_h), Image.NEAREST if is_label else Image.BILINEAR)
-        arr = np.array(image)
+        if arr.ndim == 2:
+            h, w = arr.shape
+            if (h, w) != (resize_h, resize_w):
+                arr = zoom(arr, (resize_h / h, resize_w / w), order=0, mode="reflect")
+        elif arr.ndim == 3:
+            h, w = arr.shape[:2]
+            if (h, w) != (resize_h, resize_w):
+                arr = zoom(arr, (resize_h / h, resize_w / w, 1), order=0, mode="reflect")
     if not is_label:
         if arr.dtype == np.uint8:
             arr = arr.astype(np.float32) / 255.0
