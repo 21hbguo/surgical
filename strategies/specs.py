@@ -54,6 +54,7 @@ class StrategySpec:
     is_semi: bool
     model_suffix: str | None = None
     fixed_model_name: str | None = None
+    model_names: dict[str, str] | None = None
     in_chns: int | str | None = None
 
 
@@ -64,6 +65,7 @@ def _spec(
     is_semi,
     model_suffix=None,
     fixed_model_name=None,
+    model_names=None,
     in_chns=None,
 ):
     return StrategySpec(
@@ -72,6 +74,7 @@ def _spec(
         is_semi=is_semi,
         model_suffix=model_suffix,
         fixed_model_name=fixed_model_name,
+        model_names=model_names,
         in_chns=in_chns,
     )
 
@@ -87,10 +90,10 @@ STRATEGY_SPECS = {
     "mt": _spec("mt", MeanTeacherStrategy, is_semi=True, model_suffix=""),
     "mt_depth_teacher_v1": _spec("mt_depth_teacher_v1", MTDepthTeacherV1Strategy, is_semi=True, model_suffix="", in_chns="metadata"),
     "mt_depth_guider_v1": _spec("mt_depth_guider_v1", MTDepthGuiderV1Strategy, is_semi=True, model_suffix="depth_guider_v1", in_chns="metadata"),
-    "mt_depth_guider_v1_2": _spec("mt_depth_guider_v1_2", MTDepthGuiderV1Strategy, is_semi=True, fixed_model_name="unet_depth_guider_v1_2", in_chns="metadata"),
+    "mt_depth_guider_v1_2": _spec("mt_depth_guider_v1_2", MTDepthGuiderV1Strategy, is_semi=True, model_names={"none": "unet_depth_guider_v1_2", "resnet": "resnet_depth_guider_v1_2", "depth": "unet_depth_guider_v1_2", "dinov3": "unet_depth_guider_v1_2"}, in_chns="metadata"),
     "mt_depth_guider_v2": _spec("mt_depth_guider_v2", MTDepthGuiderV2Strategy, is_semi=True, model_suffix="depth_guider_v2", in_chns="metadata"),
     "mt_depth_guider_v3": _spec("mt_depth_guider_v3", MTDepthGuiderV3Strategy, is_semi=True, model_suffix="depth_guider_v3", in_chns="metadata"),
-    "mt_depth_guider_v4": _spec("mt_depth_guider_v4", MTDepthGuiderV1Strategy, is_semi=True, fixed_model_name="unet_depth_guider_v4", in_chns="metadata"),
+    "mt_depth_guider_v4": _spec("mt_depth_guider_v4", MTDepthGuiderV1Strategy, is_semi=True, model_names={"none": "unet_depth_guider_v4", "resnet": "resnet_depth_guider_v4", "depth": "unet_depth_guider_v4", "dinov3": "unet_depth_guider_v4"}, in_chns="metadata"),
     "mt_depth_guider_proto_v1": _spec("mt_depth_guider_proto_v1", MTDepthGuiderProtoV1Strategy, is_semi=True, model_suffix="depth_guider_proto_v1", in_chns="metadata"),
     "mt_depth_guider_proto_teacher_v2": _spec("mt_depth_guider_proto_teacher_v2", MTDepthGuiderProtoTeacherV2Strategy, is_semi=True, model_suffix="depth_guider_proto_v1", in_chns="metadata"),
     "mt_depth_guider_proto_teacher_v3": _spec("mt_depth_guider_proto_teacher_v3", MTDepthGuiderProtoTeacherV3Strategy, is_semi=True, model_suffix="depth_guider_proto_v1", in_chns="metadata"),
@@ -107,7 +110,7 @@ STRATEGY_SPECS = {
     "depth_mt": _spec("depth_mt", DepthGuidedMTStrategy, is_semi=True, model_suffix="depth"),
     "rdnet": _spec("rdnet", RDNetStrategy, is_semi=True, model_suffix=""),
     "georisk_spc": _spec("georisk_spc", GeoRiskSPCStrategy, is_semi=True, model_suffix="georisk_spc", in_chns=None),
-    "georisk_spc_dgv4": _spec("georisk_spc_dgv4", GeoRiskSPCStrategy, is_semi=True, fixed_model_name="unet_georisk_spc_dgv4", in_chns=None),
+    "georisk_spc_dgv4": _spec("georisk_spc_dgv4", GeoRiskSPCStrategy, is_semi=True, model_names={"none": "unet_georisk_spc_dgv4", "resnet": "resnet_georisk_spc_dgv4", "depth": "unet_georisk_spc_dgv4", "dinov3": "unet_georisk_spc_dgv4"}, in_chns=None),
     "dformerv2_fully": _spec("dformerv2_fully", DFormerv2FullyStrategy, is_semi=False, fixed_model_name="dformerv2_small"),
     "only_depth_input": _spec("only_depth_input", OnlyDepthInputStrategy, is_semi=True, model_suffix="", in_chns=3),
     "segmatch": _spec("segmatch", SegMatchStrategy, is_semi=True, model_suffix=""),
@@ -151,6 +154,8 @@ def is_semi_strategy(name):
 
 def resolve_strategy_default_model_name(way, pretrain_mode):
     spec = get_strategy_spec(way)
+    if spec.model_names is not None and pretrain_mode in spec.model_names:
+        return spec.model_names[pretrain_mode]
     if spec.fixed_model_name is not None:
         return spec.fixed_model_name
     prefix = _PRETRAIN_PREFIXES[pretrain_mode]

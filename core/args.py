@@ -108,7 +108,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--model", type=str, default=None, help="model type (auto from strategy if not specified)")
     parser.add_argument("--way", type=str, default="fully", choices=get_strategy_names(), help="training strategy name")
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam"], help="optimizer name")
-    parser.add_argument("--pretrain", type=str, default="none", choices=["none", "resnet", "depth", "dinov3"], help="strategy model map selector")
+    parser.add_argument("--pretrain", type=str, default="resnet", choices=["none", "resnet", "depth", "dinov3"], help="strategy model map selector")
     parser.add_argument("--num_classes", type=int, default=None)
     parser.add_argument("--fold", type=str if test_mode else int, nargs="*" if test_mode else None, default=None)
     parser.add_argument("--device", type=str, default="cuda")

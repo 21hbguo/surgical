@@ -108,7 +108,15 @@ class StrategySpecsTest(unittest.TestCase):
         )
         self.assertEqual(
             resolve_strategy_default_model_name("mt_depth_guider_v4", "resnet"),
-            "unet_depth_guider_v4",
+            "resnet_depth_guider_v4",
+        )
+        self.assertEqual(
+            resolve_strategy_default_model_name("mt_depth_guider_v1_2", "resnet"),
+            "resnet_depth_guider_v1_2",
+        )
+        self.assertEqual(
+            resolve_strategy_default_model_name("georisk_spc_dgv4", "resnet"),
+            "resnet_georisk_spc_dgv4",
         )
 
 

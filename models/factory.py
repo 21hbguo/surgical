@@ -5,7 +5,7 @@ from strategies.semi_dycon import DEFAULT_FEATURE_SCALER, DEFAULT_USE_ASPP
 
 from .networks.dformerv2_small import DFormerv2SmallSeg
 from .networks.dinov3 import DINOv3UNet_Base, DINOv3UNet_ContrastV1, DINOv3UNet_DepthGuiderV1, DINOv3UNet_DepthGuiderProtoV1, DINOv3UNet_DyCON, DINOv3UNet_Depth, DINOv3UNet_DepthPretrain, DINOv3UNet_proto, DINOv3UNet_URPC, DINOv3UNet_W2S
-from .networks.resnet import ResNetUNet_Base, ResNetUNet_ContrastV1, ResNetUNet_DepthGuiderV1, ResNetUNet_DepthGuiderV2, ResNetUNet_DepthGuiderV3, ResNetUNet_DepthGuiderProtoV1, ResNetUNet_DyCON, ResNetUNet_Depth, ResNetUNet_DepthPretrain, ResNetUNet_proto, ResNetUNet_URPC, ResNetUNet_W2S
+from .networks.resnet import ResNetUNet_Base, ResNetUNet_ContrastV1, ResNetUNet_DepthGuiderV1, ResNetUNet_DepthGuiderV1_2, ResNetUNet_DepthGuiderV2, ResNetUNet_DepthGuiderV3, ResNetUNet_DepthGuiderV4, ResNetUNet_DepthGuiderProtoV1, ResNetUNet_DyCON, ResNetUNet_Depth, ResNetUNet_DepthPretrain, ResNetUNet_proto, ResNetUNet_URPC, ResNetUNet_W2S, ResNetUNet_GeoRiskSPC, ResNetUNet_DepthGuiderV4_GeoRiskSPC
 from .networks.depth import DepthUNet_Base, DepthUNet_ContrastV1, DepthUNet_DepthGuiderV1, DepthUNet_DepthGuiderProtoV1, DepthUNet_DyCON, DepthUNet_Depth, DepthUNet_DepthPretrain, DepthUNet_proto, DepthUNet_URPC, DepthUNet_W2S
 from .networks.ternaus import TernausNet16
 from .networks.unet import UNet_Base, UNet_ContrastV1, UNet_DepthGuiderV1, UNet_DepthGuiderV1_2, UNet_DepthGuiderV3, UNet_DepthGuiderV4, UNet_DepthGuiderProtoV1, UNet_DyCON, UNet_Depth, UNet_DepthPretrain, UNet_proto, UNet_URPC, UNet_W2S, UNet_GeoRiskSPC, UNet_DepthGuiderV4_GeoRiskSPC
@@ -56,8 +56,12 @@ MODEL_REGISTRY = {
     "resnet_dycon": ModelSpec(builder=ResNetUNet_DyCON, arg_map=_RESNET_UNET_ARG_MAP, static_kwargs=_DYCON_STATIC_KWARGS),
     "resnet_w2s": ModelSpec(builder=ResNetUNet_W2S, arg_map=_RESNET_UNET_ARG_MAP),
     "resnet_depth_guider_v1": ModelSpec(builder=ResNetUNet_DepthGuiderV1, arg_map=_RESNET_UNET_ARG_MAP),
+    "resnet_depth_guider_v1_2": ModelSpec(builder=ResNetUNet_DepthGuiderV1_2, arg_map=_RESNET_UNET_ARG_MAP),
     "resnet_depth_guider_v2": ModelSpec(builder=ResNetUNet_DepthGuiderV2, arg_map=_RESNET_UNET_ARG_MAP),
     "resnet_depth_guider_v3": ModelSpec(builder=ResNetUNet_DepthGuiderV3, arg_map=_RESNET_UNET_ARG_MAP),
+    "resnet_depth_guider_v4": ModelSpec(builder=ResNetUNet_DepthGuiderV4, arg_map=_RESNET_UNET_ARG_MAP),
+    "resnet_georisk_spc": ModelSpec(builder=ResNetUNet_GeoRiskSPC, arg_map=_with_arg_map(_RESNET_UNET_ARG_MAP, dropout_rate="risk_dropout_rate", noise_std="risk_noise_std")),
+    "resnet_georisk_spc_dgv4": ModelSpec(builder=ResNetUNet_DepthGuiderV4_GeoRiskSPC, arg_map=_with_arg_map(_RESNET_UNET_ARG_MAP, dropout_rate="risk_dropout_rate", noise_std="risk_noise_std")),
     "resnet_depth_guider_proto_v1": ModelSpec(builder=ResNetUNet_DepthGuiderProtoV1, arg_map=_with_arg_map(_RESNET_UNET_ARG_MAP, feature_dim="proto_feature_dim")),
     "resnet_depth": ModelSpec(builder=ResNetUNet_Depth, arg_map=_RESNET_UNET_ARG_MAP),
     "resnet_depth_pretrain": ModelSpec(builder=ResNetUNet_DepthPretrain, arg_map=_RESNET_UNET_ARG_MAP),
