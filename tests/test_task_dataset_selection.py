@@ -121,7 +121,6 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="train",
             resize_size=(2, 2),
             load_mode="path",
-            num_classes=2,
             task=1,
         )
 
@@ -142,7 +141,6 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="test",
             resize_size=(2, 2),
             load_mode="path",
-            num_classes=2,
             normalize_method="255",
             for_inference=True,
             task=1,
@@ -289,11 +287,9 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="test",
             resize_size=(4, 5),
             load_mode="path",
-            num_classes=2,
             depth_channels=1,
             normalize_method="minmax",
             for_inference=True,
-            is_depth=True,
             task=1,
         )
 
@@ -406,6 +402,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             fold=None,
             debug=False,
             is_semi_supervised=True,
+            data_format="png",
             resize_size=(4, 4),
             load_mode="path",
             num_classes=2,
@@ -451,9 +448,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="train",
             resize_size=(2, 2),
             load_mode="path",
-            num_classes=2,
             depth_channels=3,
-            is_depth=True,
             normalize_method="255",
             task=1,
         )
@@ -479,8 +474,8 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
             handle.write("case_depth_uint\n")
             handle.write("case_depth_only_legacy\n")
-        dataset_u8 = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, depth_uint=8, normalize_method="255", is_depth=True, task=1)
-        dataset_u16 = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, depth_uint=16, normalize_method="255", is_depth=True, task=1)
+        dataset_u8 = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", depth_channels=1, depth_uint=8, normalize_method="255", task=1)
+        dataset_u16 = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", depth_channels=1, depth_uint=16, normalize_method="255", task=1)
         self.assertEqual(float(dataset_u8._get_sample(0)["depth1"].max()), 80.0)
         self.assertEqual(float(dataset_u16._get_sample(0)["depth1"].max()), 16000.0)
         self.assertNotIn("depth1", dataset_u8._get_sample(1))
@@ -513,9 +508,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="train",
             resize_size=(2, 2),
             load_mode="path",
-            num_classes=2,
             depth_channels=13,
-            is_depth=True,
             normalize_method="255",
             task=1,
         )
@@ -528,11 +521,9 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="test",
             resize_size=(2, 2),
             load_mode="path",
-            num_classes=2,
             depth_channels=13,
             normalize_method="255",
             for_inference=True,
-            is_depth=True,
             task=1,
         )
         item = test_dataset[0]
@@ -552,12 +543,12 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         with open(os.path.join(self.root_path, "test_slices.list"), "w", encoding="utf-8") as handle:
             handle.write("case_depth_u8.png\n")
             handle.write("case_depth_u16.png\n")
-        train_dataset = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, normalize_method="255", is_depth=True, task=1)
+        train_dataset = BaseDataSets(base_dir=self.root_path, split="train", resize_size=(2, 2), load_mode="path", depth_channels=1, normalize_method="255", task=1)
         train_u8 = train_dataset[0]["depth1"].numpy()
         train_u16 = train_dataset[1]["depth1"].numpy()
         self.assertAlmostEqual(float(train_u8.max()), 128.0 / 255.0, places=6)
         self.assertAlmostEqual(float(train_u16.max()), 32768.0 / 65535.0, places=6)
-        test_dataset = BaseDataSets(base_dir=self.root_path, split="test", resize_size=(2, 2), load_mode="path", num_classes=2, depth_channels=1, normalize_method="255", for_inference=True, is_depth=True, task=1)
+        test_dataset = BaseDataSets(base_dir=self.root_path, split="test", resize_size=(2, 2), load_mode="path", depth_channels=1, normalize_method="255", for_inference=True, task=1)
         test_u8 = test_dataset[0]["depth1"].numpy()
         test_u16 = test_dataset[1]["depth1"].numpy()
         self.assertAlmostEqual(float(test_u8.max()), 128.0 / 255.0, places=6)
@@ -577,7 +568,6 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="train",
             resize_size=(3, 3),
             load_mode="path",
-            num_classes=2,
             task=1,
         )
 
@@ -605,7 +595,6 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             split="train",
             resize_size=(2, 2),
             load_mode="path",
-            num_classes=2,
             normalize_method="255",
             task=1,
         )
@@ -630,9 +619,6 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         train_dataset = H5DataSets(
             base_dir=self.root_path,
             split="train",
-            resize_size=(8, 8),
-            num_classes=2,
-            normalize_method="imagenet",
             task=1,
         )
         train_sample = train_dataset[0]
@@ -643,9 +629,6 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         test_dataset = H5DataSets(
             base_dir=self.root_path,
             split="test",
-            resize_size=(8, 8),
-            num_classes=2,
-            normalize_method="imagenet",
             for_inference=True,
             task=1,
         )

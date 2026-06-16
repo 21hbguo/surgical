@@ -60,8 +60,7 @@ def create_dataloaders(args):
 
     train_kwargs = dict(
         base_dir=args.root_path, split="train", fold=args.fold, num=train_num,
-        resize_size=tuple(args.resize_size), num_classes=args.num_classes,
-        normalize_method=args.normalize, sampling=args.sampling, task=args.task,
+        sampling=args.sampling, task=args.task,
         transform=RandomGenerator(
             resize_size=None if data_format == "h5" else tuple(args.resize_size), is_val=False,
             root_path=args.root_path, depth_channels=depth_channels,
@@ -69,8 +68,8 @@ def create_dataloaders(args):
     )
     if data_format != "h5":
         train_kwargs.update(dict(
+            resize_size=tuple(args.resize_size), normalize_method=args.normalize,
             load_mode=args.load_mode, depth_channels=depth_channels, depth_uint=depth_uint,
-            strategy=args.way if depth_channels else None,
         ))
     train_dataset = DatasetClass(**train_kwargs)
 
@@ -78,8 +77,7 @@ def create_dataloaders(args):
     if not args.no_val:
         val_kwargs = dict(
             base_dir=args.root_path, split="val", fold=args.fold, num=val_num,
-            resize_size=tuple(args.resize_size), num_classes=args.num_classes,
-            normalize_method=args.normalize, sampling=args.sampling, task=args.task,
+            sampling=args.sampling, task=args.task,
             transform=RandomGenerator(
                 resize_size=None if data_format == "h5" else tuple(args.resize_size), is_val=True,
                 root_path=args.root_path, depth_channels=depth_channels,
@@ -87,8 +85,8 @@ def create_dataloaders(args):
         )
         if data_format != "h5":
             val_kwargs.update(dict(
+                resize_size=tuple(args.resize_size), normalize_method=args.normalize,
                 load_mode=args.load_mode, depth_channels=depth_channels, depth_uint=depth_uint,
-                strategy=args.way if depth_channels else None,
             ))
         val_dataset = DatasetClass(**val_kwargs)
 

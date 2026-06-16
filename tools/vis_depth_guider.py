@@ -256,7 +256,6 @@ def main():
         fold=None,
         resize_size=tuple(args.resize_size),
         load_mode='path',
-        num_classes=args.num_classes,
         depth_channels=depth_channels if depth_channels else None,
         depth_uint=int(args.depth_uint),
         normalize_method=args.normalize,

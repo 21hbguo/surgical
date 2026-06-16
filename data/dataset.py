@@ -1,7 +1,6 @@
 import concurrent.futures
 import logging
 import os
-from random import sample
 
 import cv2
 import h5py
@@ -116,14 +115,10 @@ def _load_and_resize_sample(
     split,
     target_h,
     target_w,
-    num_classes=None,
     depth_channels=None,
     depth_uint=16,
-    strategy=None,
     task=None,
 ):
-    del num_classes, strategy
-
     img_path, lab_path = _find_png_paths(case, base_dir, split, task)
     if img_path is None:
         raise FileNotFoundError(f"Image file not found for case={case!r} under {base_dir}/data/images")
@@ -174,41 +169,31 @@ class BaseDataSets(Dataset):
         split="train",
         num=None,
         transform=None,
-        ops_weak=None,
-        ops_strong=None,
         fold=None,
-        max_workers=4,
         resize_size=(224, 224),
         load_mode="data",
-        num_classes=None,
         depth_channels=None,
         depth_uint=16,
-        strategy=None,
         normalize_method="imagenet",
         sampling="none",
         fold_map=None,
         use_val=False,
         for_inference=False,
-        is_depth=None,
         task=None,
     ):
         self._base_dir, self.split, self.transform = base_dir, split, transform
-        self.ops_weak, self.ops_strong, self.fold = ops_weak, ops_strong, fold
-        self.sample_list, self.data_cache, self.max_workers = [], {}, max_workers
+        self.fold = fold
+        self.sample_list, self.data_cache, self.max_workers = [], {}, 4
         self.resize_size = resize_size
         self.load_mode = load_mode
-        self.num_classes = num_classes
         self.depth_channels = depth_channels
         self.depth_uint = int(depth_uint)
-        self.strategy = strategy
         self.normalize_method = normalize_method
         self.sampling = sampling
         self.fold_map = fold_map if fold_map else {}
         self.use_val = use_val
         self.for_inference = for_inference
-        self.is_depth = bool(depth_channels) if is_depth is None else bool(is_depth)
         self.task = task
-        assert bool(ops_weak) == bool(ops_strong)
         self.sample_list = _load_sample_list(self._base_dir, self.split, fold=self.fold, use_val=self.use_val)
         self.sample_list = _apply_sample_selection(
             self.sample_list,
@@ -241,10 +226,8 @@ class BaseDataSets(Dataset):
                 self.split,
                 self.resize_size[0],
                 self.resize_size[1],
-                self.num_classes,
                 self.depth_channels,
                 self.depth_uint,
-                self.strategy,
                 self.task,
             )
             for idx, case in enumerate(self.sample_list)
@@ -287,8 +270,8 @@ class BaseDataSets(Dataset):
         return sample
 
     def _to_test_inference_item(self, sample, idx):
-        depth3 = sample.get("depth3") if self.is_depth else None
-        depth1 = sample.get("depth1") if self.is_depth else None
+        depth3 = sample.get("depth3") if self.depth_channels else None
+        depth1 = sample.get("depth1") if self.depth_channels else None
         image, depth3, depth1 = self._normalize_inputs(sample["image"], depth3=depth3, depth1=depth1)
         tensor_sample = _build_tensor_sample(image, sample["label"], depth3=depth3, depth1=depth1)
         original_shape = sample.get("original_shape")
@@ -307,9 +290,9 @@ class BaseDataSets(Dataset):
             sample = _load_and_resize_sample(
                 idx, self.sample_list[idx],
                 self._base_dir, self.split,
-                *self.resize_size, self.num_classes,
+                *self.resize_size,
                 self.depth_channels, self.depth_uint,
-                self.strategy, self.task)[1]
+                self.task)[1]
 
         if self.split in {"train", "val", "test"} and not self.for_inference:
             return self._to_train_or_val_item(sample, idx)
@@ -319,24 +302,41 @@ class BaseDataSets(Dataset):
 
         raise ValueError(f"Unsupported split: {self.split}")
 
+    @staticmethod
+    def _find_png_paths_static(case, base_dir, split, task):
+        return _find_png_paths(case, base_dir, split, task)
+
+    def _get_sample(self, idx):
+        if idx in self.data_cache:
+            return {key: value.copy() if isinstance(value, np.ndarray) else value for key, value in self.data_cache[idx].items()}
+        return _load_and_resize_sample(
+            idx,
+            self.sample_list[idx],
+            self._base_dir,
+            self.split,
+            *self.resize_size,
+            self.depth_channels,
+            self.depth_uint,
+            self.task,
+        )[1]
+
 
 def _load_h5_sample(case, base_dir, task):
     img_path = os.path.join(base_dir, "data", "images", f"{case}.h5")
-    if not os.path.exists(img_path):
-        raise FileNotFoundError(f"H5 image not found: {img_path}")
-
     label_dir = get_task_label_dir(base_dir, task)
     lab_path = os.path.join(base_dir, "data", label_dir, f"{case}.h5")
+    if not os.path.exists(img_path):
+        raise FileNotFoundError(f"H5 image not found: {img_path}")
     if not os.path.exists(lab_path):
         raise FileNotFoundError(f"H5 label not found: {lab_path}")
 
     with h5py.File(img_path, "r") as f:
         img = f["img"][()].astype(np.float32)
     with h5py.File(lab_path, "r") as f:
-        lab = _normalize_label_array(f["img"][()].astype(np.uint8))
+        lab = f["img"][()].astype(np.uint8)
     if lab.ndim == 3 and lab.shape[0] == 1:
         lab = lab[0]
-
+    lab = _normalize_label_array(lab)
     original_shape = np.array(lab.shape[:2], dtype=np.int64)
     return {"image": img, "label": lab, "original_shape": original_shape}
 
@@ -348,13 +348,7 @@ class H5DataSets(Dataset):
         split="train",
         num=None,
         transform=None,
-        ops_weak=None,
-        ops_strong=None,
         fold=None,
-        max_workers=4,
-        resize_size=(224, 224),
-        num_classes=None,
-        normalize_method="imagenet",
         sampling="none",
         fold_map=None,
         use_val=False,
@@ -364,20 +358,13 @@ class H5DataSets(Dataset):
         self._base_dir = base_dir
         self.split = split
         self.transform = transform
-        self.ops_weak = ops_weak
-        self.ops_strong = ops_strong
         self.fold = fold
-        self.resize_size = resize_size
-        self.num_classes = num_classes
-        self.normalize_method = normalize_method
         self.sampling = sampling
         self.fold_map = fold_map or {}
         self.use_val = use_val
         self.for_inference = for_inference
         self.task = task
         self.data_cache = {}
-
-        assert bool(ops_weak) == bool(ops_strong)
         self.sample_list = _load_sample_list(self._base_dir, self.split, fold=self.fold, use_val=self.use_val)
         self.sample_list = _apply_sample_selection(
             self.sample_list, self.split, fold=self.fold,

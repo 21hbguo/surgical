@@ -72,11 +72,9 @@ def _build_test_loader(args, fold, fold_map):
     test_dataset = BaseDataSets(
         base_dir=args.root_path, split='test', fold=fold,
         resize_size=tuple(args.resize_size), load_mode='path',
-        num_classes=args.num_classes,
         depth_channels=depth_channels if is_depth else None,
         depth_uint=int(args.depth_uint), normalize_method=args.normalize,
-        fold_map=fold_map, use_val=False, for_inference=True,
-        is_depth=is_depth, task=args.task,
+        fold_map=fold_map, use_val=False, for_inference=True, task=args.task,
     )
     loader_generator = torch.Generator()
     loader_generator.manual_seed(int(args.seed) + (0 if fold is None else int(fold)))
