@@ -71,7 +71,7 @@ def finalize_test_args(args):
 
 def format_args_for_logging(args):
     data = vars(args)
-    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping", "retrain", "cache_mode", "cache_refresh"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
+    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping", "retrain"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
 
 
 class StrategyArgumentParser(argparse.ArgumentParser):
@@ -163,8 +163,6 @@ def add_train_args(parser):
     parser.add_argument("--early_stopping", type=float, default=0.3, help="Early stopping patience as fraction of max_iterations (e.g. 0.3). 0=disabled.")
     parser.add_argument("--pth", type=str, default=None, choices=["best", "final", "latest"], help=argparse.SUPPRESS)
     parser.add_argument("--data-format", type=str, default="png", choices=["png", "h5"], help="Training data storage format.")
-    parser.add_argument("--cache_mode", type=str, default="disk", choices=["none", "disk"], help="Disk cache mode for train and val resized arrays.")
-    parser.add_argument("--cache_refresh", action="store_true", default=False, help="Rebuild train and val disk cache even when cached arrays already exist.")
 
 
 def add_test_args(parser):

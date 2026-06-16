@@ -47,8 +47,6 @@ def create_dataloaders(args):
         return (values * repeat_factor)[:min_length]
 
     data_format = getattr(args, "data_format", "png")
-    cache_mode = getattr(args, "cache_mode", "none")
-    cache_refresh = getattr(args, "cache_refresh", False)
     DatasetClass = H5DataSets if data_format == "h5" else BaseDataSets
     depth_channels = args.use_depth if args.use_depth and data_format != "h5" else None
     depth_uint = int(args.depth_uint) if data_format != "h5" else None
@@ -64,7 +62,6 @@ def create_dataloaders(args):
         base_dir=args.root_path, split="train", fold=args.fold, num=train_num,
         resize_size=tuple(args.resize_size), num_classes=args.num_classes,
         normalize_method=args.normalize, sampling=args.sampling, task=args.task,
-        cache_mode=cache_mode, cache_refresh=cache_refresh,
         transform=RandomGenerator(
             resize_size=tuple(args.resize_size), is_val=False,
             root_path=args.root_path, depth_channels=depth_channels,
@@ -83,7 +80,6 @@ def create_dataloaders(args):
             base_dir=args.root_path, split="val", fold=args.fold, num=val_num,
             resize_size=tuple(args.resize_size), num_classes=args.num_classes,
             normalize_method=args.normalize, sampling=args.sampling, task=args.task,
-            cache_mode=cache_mode, cache_refresh=cache_refresh,
             transform=RandomGenerator(
                 resize_size=tuple(args.resize_size), is_val=True,
                 root_path=args.root_path, depth_channels=depth_channels,
