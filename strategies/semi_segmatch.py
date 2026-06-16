@@ -16,9 +16,9 @@ class SegMatchStrategy(BaseTrainingStrategy):
         super().__init__(args, model, optimizer, device, scaler=scaler)
         self._enable_ema_support()
         self.consistency_start_iters = int(args.consistency_start_iters)
-        self.pseudo_threshold = getattr(args, 'pseudo_threshold', 0.95)
-        self.adversarial_eps = getattr(args, 'adversarial_eps', 0.01)
-        self.adversarial_steps = getattr(args, 'adversarial_steps', 1)
+        self.pseudo_threshold = args.pseudo_threshold
+        self.adversarial_eps = args.adversarial_eps
+        self.adversarial_steps = args.adversarial_steps
 
     def _generate_adversarial(self, unlabeled_volume, teacher_soft):
         """Generate adversarial augmentation using I-FGSM on unlabeled data.

@@ -19,18 +19,18 @@ class CWBASStrategy(BaseTrainingStrategy):
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
 
-        num_classes = getattr(args, 'num_classes', 2)
+        num_classes = args.num_classes
 
         # CW-BASS hyperparameters
-        self.gamma = getattr(args, 'cwbass_gamma', 1.0)
-        self.decay_factor = getattr(args, 'cwbass_decay_factor', 0.9)
-        self.base_threshold = getattr(args, 'cwbass_base_threshold', 0.6)
-        self.beta = getattr(args, 'cwbass_beta', 0.5)
-        self.min_threshold = getattr(args, 'cwbass_min_threshold', 0.3)
-        self.max_threshold = getattr(args, 'cwbass_max_threshold', 0.8)
-        self.use_confidence_decay = getattr(args, 'cwbass_use_decay', False)
-        self.boundary_weight = getattr(args, 'cwbass_boundary_weight', 0.5)
-        self.warmup_iters = getattr(args, 'cwbass_warmup_iters', 1000)
+        self.gamma = args.cwbass_gamma
+        self.decay_factor = args.cwbass_decay_factor
+        self.base_threshold = args.cwbass_base_threshold
+        self.beta = args.cwbass_beta
+        self.min_threshold = args.cwbass_min_threshold
+        self.max_threshold = args.cwbass_max_threshold
+        self.use_confidence_decay = args.cwbass_use_decay
+        self.boundary_weight = args.cwbass_boundary_weight
+        self.warmup_iters = args.cwbass_warmup_iters
 
         # Sobel filters for boundary detection
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32)

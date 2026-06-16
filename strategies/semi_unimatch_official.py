@@ -19,8 +19,8 @@ class UniMatchOfficialStrategy(BaseTrainingStrategy):
 
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
-        self.pseudo_threshold = getattr(args, 'pseudo_threshold', 0.95)
-        self.cutmix_prob = getattr(args, 'cutmix_prob', 0.5)
+        self.pseudo_threshold = args.pseudo_threshold
+        self.cutmix_prob = args.cutmix_prob
 
     def _weak_spatial_augment(self, x, label=None, mask=None):
         """Weak spatial augmentation with synchronized label/mask transform.

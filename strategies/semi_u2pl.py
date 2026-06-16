@@ -38,22 +38,22 @@ class U2PLStrategy(BaseTrainingStrategy):
         super().__init__(args, model, optimizer, device, scaler=scaler)
         self._enable_ema_support()
 
-        num_classes = getattr(args, 'num_classes', 2)
+        num_classes = args.num_classes
         bottleneck_channels = 256  # filter_num * 16 for default UNet
 
         # U2PL hyperparameters (matching original config for binary segmentation)
-        self.drop_percent = getattr(args, 'u2pl_drop_percent', 80)
-        self.contrast_weight = getattr(args, 'u2pl_contrast_weight', 0.1)
-        self.low_entropy_threshold = getattr(args, 'u2pl_low_entropy_threshold', 20.0)
-        self.num_queries = getattr(args, 'u2pl_num_queries', 256)
-        self.num_negatives = getattr(args, 'u2pl_num_negatives', 50)
-        self.temperature = getattr(args, 'u2pl_temperature', 0.5)
-        self.current_class_threshold = getattr(args, 'u2pl_class_threshold', 0.3)
-        self.current_class_negative_threshold = getattr(args, 'u2pl_class_neg_threshold', 1.0)
-        self.low_rank = getattr(args, 'u2pl_low_rank', 1)
-        self.high_rank = getattr(args, 'u2pl_high_rank', 2)
-        self.sup_only_epoch = getattr(args, 'u2pl_sup_only_epoch', 0)
-        self.max_iterations = getattr(args, 'max_iterations', 30000)
+        self.drop_percent = args.u2pl_drop_percent
+        self.contrast_weight = args.u2pl_contrast_weight
+        self.low_entropy_threshold = args.u2pl_low_entropy_threshold
+        self.num_queries = args.u2pl_num_queries
+        self.num_negatives = args.u2pl_num_negatives
+        self.temperature = args.u2pl_temperature
+        self.current_class_threshold = args.u2pl_class_threshold
+        self.current_class_negative_threshold = args.u2pl_class_neg_threshold
+        self.low_rank = args.u2pl_low_rank
+        self.high_rank = args.u2pl_high_rank
+        self.sup_only_epoch = args.u2pl_sup_only_epoch
+        self.max_iterations = args.max_iterations
 
         # Projection head maps bottleneck features (256 channels) to contrastive space
         self.projector = ProjectionHead(bottleneck_channels, 256, 256).to(device)

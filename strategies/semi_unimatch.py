@@ -17,7 +17,7 @@ class UniMatchStrategy(BaseTrainingStrategy):
         super().__init__(args, model, optimizer, device, scaler=scaler)
         self._enable_ema_support()
         self.consistency_start_iters = int(args.consistency_start_iters)
-        self.pseudo_threshold = getattr(args, 'pseudo_threshold', 0.95)
+        self.pseudo_threshold = args.pseudo_threshold
 
     def compute_loss(self, batch_data, iter_num=0, epoch=0):
         volume = batch_data["image"].to(self.device)

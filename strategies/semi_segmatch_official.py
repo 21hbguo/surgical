@@ -19,12 +19,12 @@ class SegMatchOfficialStrategy(BaseTrainingStrategy):
 
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
-        self.pseudo_threshold = getattr(args, 'pseudo_threshold', 0.8)
-        self.sharpen_temperature = getattr(args, 'sharpen_temperature', 0.5)
+        self.pseudo_threshold = args.pseudo_threshold
+        self.sharpen_temperature = args.sharpen_temperature
 
         # I-FGSM parameters (paper defaults)
-        self.adversarial_eps = getattr(args, 'adversarial_eps', 0.08)
-        self.adversarial_steps = getattr(args, 'adversarial_steps', 25)
+        self.adversarial_eps = args.adversarial_eps
+        self.adversarial_steps = args.adversarial_steps
         self.adversarial_alpha = self.adversarial_eps / self.adversarial_steps
 
     def _weak_spatial_augment(self, x, label=None, exclude_crop=False):

@@ -72,11 +72,11 @@ class CorrMatchStrategy(BaseTrainingStrategy):
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
 
-        num_classes = getattr(args, 'num_classes', 2)
+        num_classes = args.num_classes
         bottleneck_channels = 256  # filter_num * 16 for default UNet
 
-        self.pseudo_threshold = getattr(args, 'corrmatch_threshold', 0.95)
-        self.cutmix_prob = getattr(args, 'corrmatch_cutmix_prob', 0.5)
+        self.pseudo_threshold = args.corrmatch_threshold
+        self.cutmix_prob = args.corrmatch_cutmix_prob
 
         self.corr_head = CorrelationHead(bottleneck_channels).to(device)
 

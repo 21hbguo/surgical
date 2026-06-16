@@ -96,8 +96,8 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         self.pl_weight = args.risk_pl_weight
         self.cons_weight = args.risk_cons_weight
         self.bd_weight = args.risk_bd_weight
-        self.risk_source = getattr(args, 'risk_source', 'all')
-        self.risk_no_supervision = getattr(args, 'risk_no_supervision', False)
+        self.risk_source = args.risk_source
+        self.risk_no_supervision = args.risk_no_supervision
         self.kl_loss = nn.KLDivLoss(reduction='none')
 
     def _compute_risk_map(self, depth, teacher_pred):

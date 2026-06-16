@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import cv2
+import h5py
 import numpy as np
 import torch
 
@@ -612,6 +613,45 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         sample = dataset[0]
         expected = dataset._get_sample(0)["image"].astype(np.float32) / 255.0
         np.testing.assert_allclose(sample["image"].numpy(), np.transpose(expected, (2, 0, 1)), atol=1e-6)
+
+    def test_h5_dataset_keeps_preprocessed_shape_and_values(self):
+        image = np.linspace(0.1, 0.9, num=3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
+        label = np.zeros((1, 4, 5), dtype=np.uint8)
+        label[:, 1:3, 2:4] = 1
+        with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_h5\n")
+        with open(os.path.join(self.root_path, "test_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_h5\n")
+        with h5py.File(Path(self.root_path) / "data" / "images" / "case_h5.h5", "w") as handle:
+            handle.create_dataset("img", data=image)
+        with h5py.File(Path(self.root_path) / "data" / "labels_task1_binary" / "case_h5.h5", "w") as handle:
+            handle.create_dataset("img", data=label)
+        from data import H5DataSets
+        train_dataset = H5DataSets(
+            base_dir=self.root_path,
+            split="train",
+            resize_size=(8, 8),
+            num_classes=2,
+            normalize_method="imagenet",
+            task=1,
+        )
+        train_sample = train_dataset[0]
+        self.assertEqual(tuple(train_sample["image"].shape), (3, 4, 5))
+        self.assertEqual(tuple(train_sample["label"].shape), (4, 5))
+        np.testing.assert_allclose(train_sample["image"].numpy(), image, atol=1e-6)
+        self.assertEqual(sorted(train_sample["label"].unique().tolist()), [0, 1])
+        test_dataset = H5DataSets(
+            base_dir=self.root_path,
+            split="test",
+            resize_size=(8, 8),
+            num_classes=2,
+            normalize_method="imagenet",
+            for_inference=True,
+            task=1,
+        )
+        test_sample = test_dataset[0]
+        self.assertEqual(tuple(test_sample["image"].shape), (3, 4, 5))
+        self.assertEqual(test_sample["original_shape"].tolist(), [4, 5])
 
     def test_colorize_mask_uses_fixed_ten_class_mapping(self):
         mask = np.array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]], dtype=np.uint8)

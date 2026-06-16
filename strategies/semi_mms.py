@@ -69,7 +69,7 @@ class MMSStrategy(BaseTrainingStrategy):
         self.model2 = self._create_independent_model()
 
         # Projector heads (input = num_classes logits)
-        feat_ch = getattr(args, 'num_classes', 2)
+        feat_ch = args.num_classes
         self.projector_1 = Projector(feat_ch, 64, 128).to(device)
         self.projector_2 = Projector(feat_ch, 64, 128).to(device)
 
@@ -86,8 +86,8 @@ class MMSStrategy(BaseTrainingStrategy):
             all_params, lr=args.lr, betas=(0.9, 0.99), weight_decay=0.0001
         )
 
-        self.contrast_weight = getattr(args, 'mms_contrast_weight', 0.25)
-        self.diff_weight = getattr(args, 'mms_diff_weight', 0.25)
+        self.contrast_weight = args.mms_contrast_weight
+        self.diff_weight = args.mms_diff_weight
 
     def _create_independent_model(self):
         """Create a fresh model with random weights."""

@@ -35,10 +35,10 @@ class RDNetStrategy(BaseTrainingStrategy):
         self.consistency_start_iters = int(args.consistency_start_iters)
 
         # RDNet超参数（与原始论文一致）
-        self.rdnet_thresh = getattr(args, 'rdnet_thresh', 0.85)
-        self.rdnet_thresh_depth = getattr(args, 'rdnet_thresh_depth', 0.85)
-        self.rdnet_thresh_dpa = getattr(args, 'rdnet_thresh_dpa', 0.95)
-        self.rdnet_beta = getattr(args, 'rdnet_beta', 0.3)
+        self.rdnet_thresh = args.rdnet_thresh
+        self.rdnet_thresh_depth = args.rdnet_thresh_depth
+        self.rdnet_thresh_dpa = args.rdnet_thresh_dpa
+        self.rdnet_beta = args.rdnet_beta
 
         # 损失权重
         self.rdnet_unsup_rgb_weight = 0.5

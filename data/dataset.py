@@ -320,7 +320,7 @@ class BaseDataSets(Dataset):
         raise ValueError(f"Unsupported split: {self.split}")
 
 
-def _load_h5_sample(case, base_dir, task, target_h, target_w):
+def _load_h5_sample(case, base_dir, task):
     img_path = os.path.join(base_dir, "data", "images", f"{case}.h5")
     if not os.path.exists(img_path):
         raise FileNotFoundError(f"H5 image not found: {img_path}")
@@ -331,13 +331,13 @@ def _load_h5_sample(case, base_dir, task, target_h, target_w):
         raise FileNotFoundError(f"H5 label not found: {lab_path}")
 
     with h5py.File(img_path, "r") as f:
-        img = f["image"][()].astype(np.float32)
+        img = f["img"][()].astype(np.float32)
     with h5py.File(lab_path, "r") as f:
-        lab = f["label"][()].astype(np.uint8)
+        lab = _normalize_label_array(f["img"][()].astype(np.uint8))
+    if lab.ndim == 3 and lab.shape[0] == 1:
+        lab = lab[0]
 
     original_shape = np.array(lab.shape[:2], dtype=np.int64)
-    img = _resize_numpy_array(img, (target_h, target_w))
-    lab = _resize_numpy_array(lab, (target_h, target_w))
     return {"image": img, "label": lab, "original_shape": original_shape}
 
 
@@ -389,10 +389,7 @@ class H5DataSets(Dataset):
 
     def _preload_samples(self):
         for idx, case in enumerate(self.sample_list):
-            self.data_cache[idx] = _load_h5_sample(
-                case, self._base_dir, self.task,
-                self.resize_size[0], self.resize_size[1],
-            )
+            self.data_cache[idx] = _load_h5_sample(case, self._base_dir, self.task)
 
     def __len__(self):
         return len(self.sample_list)
@@ -402,14 +399,9 @@ class H5DataSets(Dataset):
         if idx in self.data_cache:
             sample = {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in self.data_cache[idx].items()}
         else:
-            sample = _load_h5_sample(
-                case, self._base_dir, self.task,
-                self.resize_size[0], self.resize_size[1],
-            )
+            sample = _load_h5_sample(case, self._base_dir, self.task)
 
         if self.split in {"train", "val"}:
-            image, _, _ = self._normalize_inputs(sample["image"])
-            sample["image"] = image
             if self.transform:
                 sample = self.transform(sample)
             else:
@@ -418,29 +410,15 @@ class H5DataSets(Dataset):
             return sample
 
         if self.split == "test" and self.for_inference:
-            image, _, _ = self._normalize_inputs(sample["image"])
-            sample["image"] = image
-            tensor_sample = _build_tensor_sample(image, sample["label"])
+            tensor_sample = _build_tensor_sample(sample["image"], sample["label"])
             tensor_sample["case"] = case
             tensor_sample["original_shape"] = sample.get("original_shape", np.array(sample["label"].shape[:2], dtype=np.int64))
             tensor_sample["original_image"] = sample["image"].copy()
             return tensor_sample
 
         if self.split == "test":
-            image, _, _ = self._normalize_inputs(sample["image"])
-            sample["image"] = image
             sample = _build_tensor_sample(sample["image"], sample["label"])
             sample["idx"] = idx
             return sample
 
         raise ValueError(f"Unsupported split: {self.split}")
-
-    def _normalize_inputs(self, image, depth3=None, depth1=None):
-        image = _normalize_array(image, method=self.normalize_method)
-        if depth3 is not None:
-            depth3 = depth3.astype(np.float32)
-            if depth3.max() > 1.0:
-                depth3 = depth3 / 255.0
-        if depth1 is not None:
-            depth1 = _normalize_depth1(depth1)
-        return image, depth3, depth1

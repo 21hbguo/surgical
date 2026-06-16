@@ -84,7 +84,7 @@ class StrategyArgumentParser(argparse.ArgumentParser):
         probe = argparse.ArgumentParser(add_help=False)
         probe.add_argument("--way", type=str, default="fully")
         known, _ = probe.parse_known_args(args)
-        return str(getattr(known, "way", "fully")).lower()
+        return str(known.way).lower()
 
     def _ensure_strategy_args(self, args=None):
         if self._strategy_args_added:

@@ -3,7 +3,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import shutil
 from pathlib import Path
 import h5py
-import hdf5plugin
 import numpy as np
 from PIL import Image
 
@@ -12,8 +11,8 @@ parser.add_argument("--input_dir", type=str, required=True)
 parser.add_argument("--output_dir", type=str, required=True)
 parser.add_argument("--skip_names", type=str, nargs="*", default=[])
 parser.add_argument("--num_workers", type=int, default=8)
-parser.add_argument("--resize_h", type=int, default=224)
-parser.add_argument("--resize_w", type=int, default=224)
+parser.add_argument("--resize_h", type=int, default=0)
+parser.add_argument("--resize_w", type=int, default=0)
 args = parser.parse_args()
 input_dir = Path(args.input_dir).resolve()
 output_dir = Path(args.output_dir).resolve()
@@ -30,7 +29,7 @@ for src_path in files:
     folder_totals[folder_key] = folder_totals.get(folder_key, 0) + 1
 folder_done = {folder_key: 0 for folder_key in folder_totals}
 
-def process_one(src_path_str, input_dir_str, output_dir_str, skip_names, resize_h, resize_w):
+def process_one(src_path_str, input_dir_str, output_dir_str, resize_h, resize_w):
     src_path = Path(src_path_str)
     input_dir = Path(input_dir_str)
     output_dir = Path(output_dir_str)
@@ -65,13 +64,13 @@ def process_one(src_path_str, input_dir_str, output_dir_str, skip_names, resize_
     dst_min = arr.min().item()
     dst_max = arr.max().item()
     with h5py.File(dst_h5_path, "w") as f:
-        f.create_dataset("img", data=arr, compression=hdf5plugin.Blosc(cname="zstd", clevel=5, shuffle=hdf5plugin.Blosc.BITSHUFFLE), chunks=arr.shape)
+        f.create_dataset("img", data=arr, compression="gzip", compression_opts=4, chunks=arr.shape)
     return str(rel_path), "processed", f"src shape={src_shape} range=({src_min}, {src_max}) -> dst shape={arr.shape} range=({dst_min}, {dst_max})"
 
 if args.num_workers <= 1:
     file_idx = 0
     for src_path in files:
-        rel_path, status, detail = process_one(str(src_path), str(input_dir), str(output_dir), skip_names, args.resize_h, args.resize_w)
+        rel_path, status, detail = process_one(str(src_path), str(input_dir), str(output_dir), args.resize_h, args.resize_w)
         file_idx += 1
         folder_key = str(Path(rel_path).parent)
         folder_done[folder_key] += 1
@@ -81,7 +80,7 @@ if args.num_workers <= 1:
             print(f"  {detail}", flush=True)
 else:
     with ProcessPoolExecutor(max_workers=args.num_workers) as ex:
-        futures = [ex.submit(process_one, str(src_path), str(input_dir), str(output_dir), skip_names, args.resize_h, args.resize_w) for src_path in files]
+        futures = [ex.submit(process_one, str(src_path), str(input_dir), str(output_dir), args.resize_h, args.resize_w) for src_path in files]
         for file_idx, fut in enumerate(as_completed(futures), 1):
             rel_path, status, detail = fut.result()
             folder_key = str(Path(rel_path).parent)

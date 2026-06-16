@@ -46,7 +46,7 @@ def create_dataloaders(args):
         repeat_factor = (min_length + len(values) - 1) // len(values)
         return (values * repeat_factor)[:min_length]
 
-    data_format = getattr(args, "data_format", "png")
+    data_format = args.data_format
     DatasetClass = H5DataSets if data_format == "h5" else BaseDataSets
     depth_channels = args.use_depth if args.use_depth and data_format != "h5" else None
     depth_uint = int(args.depth_uint) if data_format != "h5" else None
@@ -63,7 +63,7 @@ def create_dataloaders(args):
         resize_size=tuple(args.resize_size), num_classes=args.num_classes,
         normalize_method=args.normalize, sampling=args.sampling, task=args.task,
         transform=RandomGenerator(
-            resize_size=tuple(args.resize_size), is_val=False,
+            resize_size=None if data_format == "h5" else tuple(args.resize_size), is_val=False,
             root_path=args.root_path, depth_channels=depth_channels,
         ),
     )
@@ -81,7 +81,7 @@ def create_dataloaders(args):
             resize_size=tuple(args.resize_size), num_classes=args.num_classes,
             normalize_method=args.normalize, sampling=args.sampling, task=args.task,
             transform=RandomGenerator(
-                resize_size=tuple(args.resize_size), is_val=True,
+                resize_size=None if data_format == "h5" else tuple(args.resize_size), is_val=True,
                 root_path=args.root_path, depth_channels=depth_channels,
             ),
         )
