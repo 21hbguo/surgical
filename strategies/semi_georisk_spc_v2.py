@@ -6,13 +6,15 @@ Low-risk: hard pseudo-label supervision.
 High-risk: feature perturbation + soft consistency + boundary consistency.
 """
 
+import os
 import torch
+import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .base_strategy import BaseTrainingStrategy
 
-def _local_relative_normalization_fast(depth, window=16):
+def _local_relative_normalization(depth, window=16):
     """Fast version using conv2d instead of unfold. GPU 3-5x faster, numerically equivalent."""
     pad = window // 2
     C = depth.size(1)
@@ -41,17 +43,6 @@ def _sobel_gradient_magnitude(x):
     return mag.reshape(B, C, H, W)
 
 
-def _sobel_gradient_magnitude_single(x):
-    """Compute gradient magnitude for single-channel input: [B, 1, H, W]."""
-    sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
-                           dtype=x.dtype, device=x.device).view(1, 1, 3, 3)
-    sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
-                           dtype=x.dtype, device=x.device).view(1, 1, 3, 3)
-    gx = F.conv2d(x, sobel_x, padding=1)
-    gy = F.conv2d(x, sobel_y, padding=1)
-    return torch.sqrt(gx ** 2 + gy ** 2 + 1e-8)
-
-
 def _normalize_map(x):
     """Min-max normalize to [0, 1]."""
     mn = x.min()
@@ -59,7 +50,7 @@ def _normalize_map(x):
     return (x - mn) / (mx - mn + 1e-8)
 
 
-class GeoRiskSPCStrategy(BaseTrainingStrategy):
+class GeoRiskSPCStrategyV2(BaseTrainingStrategy):
 
     @staticmethod
     def add_args(parser):
@@ -109,10 +100,10 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
             M_l: [B_u, 1, H, W] low-risk (high-confidence) mask
         """
         # 1. Local relative depth normalization
-        d_rel = _local_relative_normalization_fast(depth, self.window_size)
+        d_rel = _local_relative_normalization(depth, self.window_size)
 
         # 2. Depth discontinuity [B, 1, H, W]
-        G_d = _sobel_gradient_magnitude_single(d_rel)
+        G_d = _sobel_gradient_magnitude(d_rel)
 
         # 3. Teacher uncertainty (prediction entropy) [B, 1, H, W]
         U_t = -torch.sum(teacher_pred * torch.log(teacher_pred + 1e-8), dim=1, keepdim=True)
@@ -146,19 +137,6 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
 
         return M_r, M_l
 
-    def _compute_boundary_gradients(self, pred):
-        """Compute spatial gradient magnitude of prediction maps."""
-        B, C, H, W = pred.shape
-        pred_flat = pred.reshape(B * C, 1, H, W)
-        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
-                               dtype=pred.dtype, device=pred.device).view(1, 1, 3, 3)
-        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
-                               dtype=pred.dtype, device=pred.device).view(1, 1, 3, 3)
-        gx = F.conv2d(pred_flat, sobel_x, padding=1)
-        gy = F.conv2d(pred_flat, sobel_y, padding=1)
-        mag = torch.sqrt(gx ** 2 + gy ** 2 + 1e-8)
-        return mag.reshape(B, C, H, W)
-
     def compute_loss(self, batch_data, iter_num=0, epoch=0):
         image = batch_data['image'].to(self.device)
         depth_tensor = self._get_depth_tensor(batch_data)
@@ -173,7 +151,7 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         B_u = unlabeled_image.shape[0]
 
         # Risk mask placeholder
-        risk_mask = None
+        M_r = None
         M_l = None
 
         # Teacher forward + risk map (only when unlabeled data exists)
@@ -189,7 +167,23 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
 
                 # Compute risk map
                 if unlabeled_depth is not None:
-                    risk_mask, M_l = self._compute_risk_map(unlabeled_depth, teacher_pred)
+                    M_r, M_l = self._compute_risk_map(unlabeled_depth, teacher_pred)
+                    # Save M_r, M_l as images (1% prob, one image per sample)
+                    if torch.rand(1).item() < 0.01:
+                        save_dir = '/home/guo/project/ssl4mis/data/test'
+                        os.makedirs(save_dir, exist_ok=True)
+                        for i in range(M_r.shape[0]):
+                            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 4))
+                            ax1.imshow(M_r[i, 0].cpu().numpy(), cmap='hot')
+                            ax1.set_title('M_r (High-risk)')
+                            ax1.axis('off')
+                            ax2.imshow(M_l[i, 0].cpu().numpy(), cmap='hot')
+                            ax2.set_title('M_l (Low-risk)')
+                            ax2.axis('off')
+                            plt.tight_layout()
+                            plt.savefig(os.path.join(save_dir, f'risk_batch{iter_num}_sample{i}.png'), dpi=100, bbox_inches='tight')
+                            plt.close(fig)
+                    
         else:
             teacher_pred = None
 
@@ -200,11 +194,10 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         stud_volume = torch.cat([stud_image, depth_tensor], dim=1) if depth_tensor is not None else stud_image
 
         # Build full-batch risk mask (zeros for labeled, actual mask for unlabeled)
-        if risk_mask is not None:
-            B_full = stud_volume.shape[0]
-            full_risk_mask = torch.zeros(B_full, 1, *risk_mask.shape[2:], device=self.device)
-            full_risk_mask[self.labeled_bs:] = risk_mask
-            output_clean, output_pert = self.model(stud_volume, risk_mask=full_risk_mask)
+        if M_r is not None:
+            full_M_r = torch.zeros(stud_volume.shape[0], 1, *M_r.shape[2:], device=self.device)
+            full_M_r[self.labeled_bs:] = M_r
+            output_clean, output_pert = self.model(stud_volume, M_r=full_M_r)
         else:
             output_clean = self.model(stud_volume)
             output_pert = None
@@ -236,10 +229,10 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
                 # Standard semi-supervised: all unlabeled pixels get pseudo-label loss
                 pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
                 pl_loss = pl_ce.mean()
-            elif risk_mask is not None and M_l is not None and output_pert is not None:
+            elif M_r is not None and M_l is not None and output_pert is not None:
                 # Resize masks to prediction spatial size
                 H, W = clean_unlabeled.shape[2:]
-                M_r_up = F.interpolate(risk_mask, size=(H, W), mode='nearest')
+                M_r_up = F.interpolate(M_r, size=(H, W), mode='nearest')
                 M_l_up = F.interpolate(M_l, size=(H, W), mode='nearest')
 
                 # L_pl: low-risk pseudo-label loss
@@ -259,8 +252,8 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
                     cons_loss = (M_r_up * kl).sum() / (r_pixels + 1e-8)
 
                 # L_bd: boundary consistency
-                grad_clean = self._compute_boundary_gradients(clean_unlabeled_soft.detach())
-                grad_pert = self._compute_boundary_gradients(pert_unlabeled_soft)
+                grad_clean = _sobel_gradient_magnitude(clean_unlabeled_soft.detach())
+                grad_pert = _sobel_gradient_magnitude(pert_unlabeled_soft)
                 bd_diff = torch.abs(grad_clean - grad_pert)
                 if r_pixels > 0:
                     bd_loss = (M_r_up * bd_diff).sum() / (r_pixels + 1e-8)

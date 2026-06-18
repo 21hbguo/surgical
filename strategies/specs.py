@@ -26,6 +26,7 @@ from .semi_mt_depth_teacher_v1 import MTDepthTeacherV1Strategy
 from .semi_only_depthInput import OnlyDepthInputStrategy
 from .semi_proto_v1 import ProtoV1Strategy
 from .semi_georisk_spc import GeoRiskSPCStrategy
+from .semi_georisk_spc_v2 import GeoRiskSPCStrategyV2
 from .semi_rdnet import RDNetStrategy
 from .semi_uncertainty_mt import UncertaintyMTStrategy
 from .semi_urpc import URPCStrategy
@@ -111,6 +112,7 @@ STRATEGY_SPECS = {
     "rdnet": _spec("rdnet", RDNetStrategy, is_semi=True, model_suffix=""),
     "georisk_spc": _spec("georisk_spc", GeoRiskSPCStrategy, is_semi=True, model_suffix="georisk_spc", in_chns=None),
     "georisk_spc_dgv4": _spec("georisk_spc_dgv4", GeoRiskSPCStrategy, is_semi=True, model_names={"none": "unet_georisk_spc_dgv4", "resnet": "resnet_georisk_spc_dgv4", "depth": "unet_georisk_spc_dgv4", "dinov3": "unet_georisk_spc_dgv4"}, in_chns=None),
+    "georisk_spc_dgv4_v2": _spec("georisk_spc_dgv4_v2", GeoRiskSPCStrategyV2, is_semi=True, model_names={"none": "unet_georisk_spc_dgv4", "resnet": "resnet_georisk_spc_dgv4", "depth": "unet_georisk_spc_dgv4", "dinov3": "unet_georisk_spc_dgv4"}, in_chns=None),
     "dformerv2_fully": _spec("dformerv2_fully", DFormerv2FullyStrategy, is_semi=False, fixed_model_name="dformerv2_small"),
     "only_depth_input": _spec("only_depth_input", OnlyDepthInputStrategy, is_semi=True, model_suffix="", in_chns=3),
     "segmatch": _spec("segmatch", SegMatchStrategy, is_semi=True, model_suffix=""),
