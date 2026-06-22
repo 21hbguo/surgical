@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
+from scipy.ndimage import binary_erosion, distance_transform_edt, generate_binary_structure
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -40,7 +41,11 @@ METRIC_PAIRS = (
     ('Precision', 'precision'),
     ('Recall', 'recall'),
     ('Acc', 'acc'),
+    ('HD95', 'hd95'),
+    ('ASD', 'asd'),
 )
+PER_CLASS_METRIC_PAIRS = METRIC_PAIRS
+SUMMARY_METRIC_PAIRS = METRIC_PAIRS
 TEST_NUM_WORKERS = 4
 
 
@@ -217,6 +222,8 @@ def calculate_metric_percase(pred, gt, smooth=1e-6):
             'FP': 0.0,
             'FN': 0.0,
             'Acc': float((pred == gt).mean()),
+            'HD95': float('nan'),
+            'ASD': float('nan'),
             'Valid': False,
         }
     intersection = np.logical_and(pred, gt).sum()
@@ -227,7 +234,21 @@ def calculate_metric_percase(pred, gt, smooth=1e-6):
     fp = float(np.logical_and(pred, np.logical_not(gt)).sum())
     fn = float(np.logical_and(np.logical_not(pred), gt).sum())
     acc = float((pred == gt).mean())
-    return {'Dice': dice, 'IoU': iou, 'TP': tp, 'FP': fp, 'FN': fn, 'Acc': acc, 'Valid': True}
+    hd95 = float('nan')
+    asd = float('nan')
+    if pred.sum() > 0 and gt.sum() > 0:
+        pred_mask = pred.astype(bool)
+        gt_mask = gt.astype(bool)
+        structure = generate_binary_structure(pred_mask.ndim, 1)
+        pred_surface = np.logical_xor(pred_mask, binary_erosion(pred_mask, structure=structure, border_value=0))
+        gt_surface = np.logical_xor(gt_mask, binary_erosion(gt_mask, structure=structure, border_value=0))
+        if pred_surface.any() and gt_surface.any():
+            pred_to_gt = distance_transform_edt(~gt_surface)[pred_surface]
+            gt_to_pred = distance_transform_edt(~pred_surface)[gt_surface]
+            surface_distances = np.concatenate([pred_to_gt, gt_to_pred]).astype(np.float64)
+            hd95 = float(np.percentile(surface_distances, 95))
+            asd = float(surface_distances.mean())
+    return {'Dice': dice, 'IoU': iou, 'TP': tp, 'FP': fp, 'FN': fn, 'Acc': acc, 'HD95': hd95, 'ASD': asd, 'Valid': True}
 
 
 def _resize_mask_to_shape(mask: np.ndarray, target_shape) -> np.ndarray:
@@ -372,33 +393,37 @@ def summarize_metrics(all_metrics, num_classes=2):
     valid_metrics = [metric for metric in all_metrics if metric.get('Valid', True)]
     if not valid_metrics:
         return {}
-
     summary = {}
     derived_metric_values = {
         'Precision': [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in valid_metrics],
         'Recall': [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in valid_metrics],
     }
+    def format_metric_values(values):
+        values = np.asarray(values, dtype=np.float64)
+        values = values[~np.isnan(values)]
+        if values.size == 0:
+            return 'nan ± nan'
+        return f'{values.mean():.4f} ± {values.std():.4f}'
     for summary_metric, _ in SUMMARY_METRIC_PAIRS:
         if summary_metric in derived_metric_values:
             values = derived_metric_values[summary_metric]
         else:
-            values = [item[summary_metric] for item in valid_metrics]
-        summary[f'Avg_{summary_metric}'] = f'{np.mean(values):.4f} ± {np.std(values):.4f}'
-
+            values = [item.get(summary_metric, float('nan')) for item in valid_metrics]
+        summary[f'Avg_{summary_metric}'] = format_metric_values(values)
     for cls in range(1, num_classes):
         class_metrics = [item for item in valid_metrics if item['Class'] == cls]
         if not class_metrics:
             continue
-        dice_vals = [item['Dice'] for item in class_metrics]
-        iou_vals = [item['IoU'] for item in class_metrics]
-        acc_vals = [item['Acc'] for item in class_metrics]
-        prec_vals = [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in class_metrics]
-        rec_vals = [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in class_metrics]
-        summary[f'C{cls}_Dice'] = f'{np.mean(dice_vals):.4f} ± {np.std(dice_vals):.4f}'
-        summary[f'C{cls}_IoU'] = f'{np.mean(iou_vals):.4f} ± {np.std(iou_vals):.4f}'
-        summary[f'C{cls}_Precision'] = f'{np.mean(prec_vals):.4f} ± {np.std(prec_vals):.4f}'
-        summary[f'C{cls}_Recall'] = f'{np.mean(rec_vals):.4f} ± {np.std(rec_vals):.4f}'
-        summary[f'C{cls}_Acc'] = f'{np.mean(acc_vals):.4f} ± {np.std(acc_vals):.4f}'
+        derived_class_metric_values = {
+            'Precision': [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in class_metrics],
+            'Recall': [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in class_metrics],
+        }
+        for per_class_metric, _ in PER_CLASS_METRIC_PAIRS:
+            if per_class_metric in derived_class_metric_values:
+                values = derived_class_metric_values[per_class_metric]
+            else:
+                values = [item.get(per_class_metric, float('nan')) for item in class_metrics]
+            summary[f'C{cls}_{per_class_metric}'] = format_metric_values(values)
     return summary
 
 

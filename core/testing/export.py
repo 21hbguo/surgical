@@ -19,6 +19,8 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from utils.metrics import METRIC_PAIRS as DISPLAY_METRIC_PAIRS
 
+PERCENTAGE_METRICS = {"Dice", "IoU", "Precision", "Recall", "Acc"}
+
 
 def build_export_experiment_name(args, model_name: str, total_folds: int, effective_lr: float) -> str:
     clean_exp_name = args.exp.split("/")[-1] if "/" in args.exp else args.exp
@@ -41,14 +43,16 @@ def build_result_name(args, model_name: str, suffix: str) -> str:
     return f"task{args.task}_{clean_exp_name}_{labeled_num}_labeled_lr{lr}_{model_name}_{suffix}"
 
 
-def format_metric_percentage(val_str: str) -> str:
+def format_metric_percentage(val_str: str, scale_percentage: bool = True) -> str:
     if "±" in val_str:
         mean_text, std_text = val_str.split("±", 1)
         mean_val = float(mean_text.strip())
         std_val = float(std_text.strip())
     else:
         mean_val, std_val = float(val_str), 0.0
-    return f"{mean_val * 100:.2f} ± {std_val * 100:.2f}"
+    if scale_percentage:
+        return f"{mean_val * 100:.2f} ± {std_val * 100:.2f}"
+    return f"{mean_val:.2f} ± {std_val:.2f}"
 
 
 def _summary_key_to_column_key(key: str) -> str:
@@ -66,7 +70,8 @@ def append_summary_metrics_to_row(row: dict, summary: dict):
     for key, value in summary.items():
         if key in {"Total_Samples", "Valid_Samples"}:
             continue
-        row[_summary_key_to_column_key(key)] = format_metric_percentage(value)
+        metric_name = key.split("_", 1)[1] if key.startswith("Avg_") else key.split("_", 1)[1]
+        row[_summary_key_to_column_key(key)] = format_metric_percentage(value, scale_percentage=metric_name in PERCENTAGE_METRICS)
 
 
 def build_summary_row(args, summary, fold_label, train_best_dice=None, total_samples=None):
@@ -101,9 +106,11 @@ def build_summary_row(args, summary, fold_label, train_best_dice=None, total_sam
     if total_samples is not None:
         row["Total_Samples"] = total_samples
     for metric in [key for key in summary.keys() if key.startswith("Avg_")]:
-        row[_summary_key_to_column_key(metric)] = format_metric_percentage(summary[metric])
+        metric_name = metric.split("_", 1)[1]
+        row[_summary_key_to_column_key(metric)] = format_metric_percentage(summary[metric], scale_percentage=metric_name in PERCENTAGE_METRICS)
     for key in per_class_metrics:
-        row[_summary_key_to_column_key(key)] = format_metric_percentage(summary[key])
+        metric_name = key.split("_", 1)[1]
+        row[_summary_key_to_column_key(key)] = format_metric_percentage(summary[key], scale_percentage=metric_name in PERCENTAGE_METRICS)
     return row
 
 

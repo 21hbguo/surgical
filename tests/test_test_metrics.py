@@ -200,6 +200,44 @@ class TestInMemoryAggregation(unittest.TestCase):
         self.assertEqual(summary["Valid_Samples"], 2)
         self.assertEqual(summary["Avg_Dice"], "0.5000 ± 0.5000")
 
+    def test_calculate_metric_percase_includes_distance_metrics(self):
+        gt = torch.tensor(
+            [
+                [0, 0, 0, 0, 0],
+                [0, 1, 1, 0, 0],
+                [0, 1, 1, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ]
+        ).numpy()
+        pred = torch.tensor(
+            [
+                [0, 0, 0, 0, 0],
+                [0, 0, 1, 1, 0],
+                [0, 0, 1, 1, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ]
+        ).numpy()
+
+        metrics = test_core.calculate_metric_percase(pred, gt)
+
+        self.assertAlmostEqual(metrics["HD95"], 1.0, places=6)
+        self.assertAlmostEqual(metrics["ASD"], 0.5, places=6)
+
+    def test_build_fold_rows_keeps_distance_metrics_unscaled(self):
+        records = [
+            {"Fold": "f0", "Seq": 1, "Case": "case_1_a", "Class": 1, "Dice": 0.5, "IoU": 0.4, "TP": 2.0, "FP": 1.0, "FN": 1.0, "Acc": 0.8, "HD95": 4.0, "ASD": 1.5, "Valid": True},
+            {"Fold": "f0", "Seq": 1, "Case": "case_1_b", "Class": 1, "Dice": 0.7, "IoU": 0.6, "TP": 3.0, "FP": 1.0, "FN": 1.0, "Acc": 0.9, "HD95": 6.0, "ASD": 2.5, "Valid": True},
+        ]
+
+        rows = test_core.build_fold_rows(records, num_classes=2)
+
+        self.assertEqual(rows[0]["Avg_hd95"], "5.00 ± 1.00")
+        self.assertEqual(rows[0]["Avg_asd"], "2.00 ± 0.50")
+        self.assertEqual(rows[0]["C1_hd95"], "5.00 ± 1.00")
+        self.assertEqual(rows[0]["C1_asd"], "2.00 ± 0.50")
+
 
 class TestMainOutputs(unittest.TestCase):
     def test_run_one_fold_loads_full_strategy_state(self):

@@ -9,6 +9,8 @@ METRIC_PAIRS = (
     ("Precision", "precision"),
     ("Recall", "recall"),
     ("Acc", "acc"),
+    ("HD95", "hd95"),
+    ("ASD", "asd"),
 )
 
 
@@ -63,6 +65,8 @@ def calculate_segmentation_case_metrics(pred, gt, num_classes):
                 "FP": 0.0,
                 "FN": 0.0,
                 "Acc": float((pred_cls == gt_cls).mean()),
+                "HD95": float("nan"),
+                "ASD": float("nan"),
                 "Valid": False,
                 "Class": cls,
             })
@@ -83,6 +87,8 @@ def calculate_segmentation_case_metrics(pred, gt, num_classes):
             "FP": fp,
             "FN": fn,
             "Acc": acc,
+            "HD95": float("nan"),
+            "ASD": float("nan"),
             "Valid": True,
             "Class": cls,
         })

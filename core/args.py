@@ -108,7 +108,7 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--model", type=str, default=None, help="model type (auto from strategy if not specified)")
     parser.add_argument("--way", type=str, default="fully", choices=get_strategy_names(), help="training strategy name")
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam"], help="optimizer name")
-    parser.add_argument("--pretrain", type=str, default="resnet", choices=["none", "resnet", "depth", "dinov3"], help="strategy model map selector")
+    parser.add_argument("--pretrain", type=str, default="none", choices=["none", "resnet", "depth", "dinov3"], help="strategy model map selector")
     parser.add_argument("--num_classes", type=int, default=None)
     parser.add_argument("--fold", type=str if test_mode else int, nargs="*" if test_mode else None, default=None)
     parser.add_argument("--device", type=str, default="cuda")
@@ -162,7 +162,7 @@ def add_train_args(parser):
     parser.add_argument("--no_val", action="store_true", default=False, help="Disable validation and save only the final checkpoint.")
     parser.add_argument("--early_stopping", type=float, default=0.3, help="Early stopping patience as fraction of max_iterations (e.g. 0.3). 0=disabled.")
     parser.add_argument("--pth", type=str, default=None, choices=["best", "final", "latest"], help=argparse.SUPPRESS)
-    parser.add_argument("--data-format", type=str, default="h5", choices=["png", "h5"], help="Training data storage format.")
+    parser.add_argument("--data-format", type=str, default="png", choices=["png", "h5"], help="Training data storage format.")
 
 
 def add_test_args(parser):
@@ -177,7 +177,7 @@ def add_test_args(parser):
     parser.add_argument("--rgb", type=int, default=0, choices=[0, 1, 2, 3], help="0=off, 1=pred overlay, 2=label/pred side-by-side, 3=label only")
     parser.add_argument("--no_val", action="store_true", default=False)
     parser.add_argument("--train_result_root", type=str, default="../result_train", help="train checkpoint root used by test")
-    parser.add_argument("--data-format", type=str, default="h5", choices=["png", "h5"], help="Test data storage format.")
+    parser.add_argument("--data-format", type=str, default="png", choices=["png", "h5"], help="Test data storage format.")
 
 
 def build_train_parser():
