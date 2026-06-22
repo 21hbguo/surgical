@@ -17,7 +17,7 @@ import core.test as test_core
 import core.train as train_core
 from core.testing.export import build_summary_row
 from core.testing.visualization import colorize_test_mask
-from data import BaseDataSets
+from data import BaseDataSets, H5DataSets
 from data.transforms import RandomGenerator, _normalize_array
 from strategies import create_strategy
 from strategies import semi_dycon, semi_uncertainty_mt, semi_w2s
@@ -359,6 +359,36 @@ class TaskDatasetSelectionTest(unittest.TestCase):
         self.assertEqual(tuple(batch["image"][0].shape), (3, 4, 5))
         self.assertIn("depth3", batch)
         self.assertEqual(tuple(batch["depth3"][0].shape), (3, 4, 5))
+
+    def test_build_test_loader_uses_h5_dataset_for_h5_format(self):
+        with open(os.path.join(self.root_path, "test_slices.list"), "w", encoding="utf-8") as handle:
+            handle.write("case_h5_test\n")
+        with h5py.File(Path(self.root_path) / "data" / "images" / "case_h5_test.h5", "w") as handle:
+            handle.create_dataset("img", data=np.full((4, 5, 3), 0.5, dtype=np.float32))
+        with h5py.File(Path(self.root_path) / "data" / "labels_task1_binary" / "case_h5_test.h5", "w") as handle:
+            handle.create_dataset("img", data=np.array([[0, 1, 0, 1, 0], [1, 0, 1, 0, 1], [0, 1, 0, 1, 0], [1, 0, 1, 0, 1]], dtype=np.uint8))
+
+        args = Namespace(
+            root_path=self.root_path,
+            resize_size=(8, 9),
+            num_classes=2,
+            use_depth=0,
+            depth_uint=16,
+            normalize="minmax",
+            task=1,
+            batch_size=1,
+            data_format="h5",
+        )
+
+        with patch.object(test_core, "TEST_NUM_WORKERS", 0):
+            dataset, test_loader, _, _ = test_core._build_test_loader(args, fold=None, fold_map={})
+            batch = next(iter(test_loader))
+
+        self.assertIsInstance(dataset, H5DataSets)
+        self.assertEqual(tuple(batch["image"][0].shape), (3, 4, 5))
+        self.assertEqual(tuple(batch["label"][0].shape), (4, 5))
+        self.assertEqual(batch["case"][0], "case_h5_test")
+        self.assertEqual(batch["original_shape"][0].tolist(), [4, 5])
 
     def test_patients_to_slices_preserves_at_least_one_positive_labeled_sample(self):
         with open(os.path.join(self.root_path, "train_slices.list"), "w", encoding="utf-8") as handle:

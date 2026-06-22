@@ -90,9 +90,40 @@ class GeoRiskSPCStrategyV2(BaseTrainingStrategy):
         self.bd_weight = args.risk_bd_weight
         self.risk_source = args.risk_source
         self.risk_no_supervision = args.risk_no_supervision
-        self.kl_loss = nn.KLDivLoss(reduction='none')
 
-    def _compute_risk_map(self, depth, teacher_pred):
+    def _compute_risk_map_v2(self, depth, teacher_pred, iter_num=0):
+        """Compute geometry-aware risk map from depth and teacher predictions.
+
+        Returns:
+            M_r: [B_u, 1, H, W] high-risk mask
+            M_l: [B_u, 1, H, W] low-risk (high-confidence) mask
+        """
+        U_t = -torch.sum(teacher_pred * torch.log(teacher_pred + 1e-8), dim=1, keepdim=True)
+        U_t_norm = _normalize_map(U_t)
+
+        M_r = (U_t_norm > 0.5).float()
+        M_l = 1.0 - M_r
+        if torch.rand(1).item() < 0.01:
+            save_dir = '/home/guo/project/ssl4mis/data/test'
+            os.makedirs(save_dir, exist_ok=True)
+            for i in range(M_r.shape[0]):
+                vars_list = [
+                    ('U_t_norm', U_t_norm[i, 0]),
+                    ('M_r', M_r[i, 0]),
+                    ('M_l', M_l[i, 0]),
+                ]
+                fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+                for ax, (name, tensor) in zip(axes.flat, vars_list):
+                    ax.imshow(tensor.cpu().numpy(), cmap='hot')
+                    ax.set_title(name)
+                    ax.axis('off')
+                plt.tight_layout()
+                plt.savefig(os.path.join(save_dir, f'risk_batch{iter_num}_sample{i}.png'), dpi=100, bbox_inches='tight')
+                plt.close(fig)
+
+        return M_r, M_l
+
+    def _compute_risk_map_v1(self, depth, teacher_pred, iter_num=0):
         """Compute geometry-aware risk map from depth and teacher predictions.
 
         Returns:
@@ -135,6 +166,32 @@ class GeoRiskSPCStrategyV2(BaseTrainingStrategy):
         M_r = (R > self.tau_r).float()
         M_l = (conf > self.tau_c).float() * (1.0 - M_r)
 
+        # Save risk map intermediates (1% prob, one image per sample)
+        if torch.rand(1).item() < 0.01:
+            save_dir = '/home/guo/project/ssl4mis/data/test'
+            os.makedirs(save_dir, exist_ok=True)
+            for i in range(M_r.shape[0]):
+                vars_list = [
+                    ('depth', depth[i, 0]),
+                    ('d_rel', d_rel[i, 0]),
+                    ('G_d_norm', G_d_norm[i, 0]),
+                    ('U_t_norm', U_t_norm[i, 0]),
+                    ('U_t*G_d', U_t_norm[i, 0] * G_d_norm[i, 0]),
+                    ('B_p_norm', B_p_norm[i, 0]),
+                    ('C_conf', C_conf[i, 0]),
+                    ('R', R[i, 0]),
+                    ('M_r', M_r[i, 0]),
+                    ('M_l', M_l[i, 0]),
+                ]
+                fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+                for ax, (name, tensor) in zip(axes.flat, vars_list):
+                    ax.imshow(tensor.cpu().numpy(), cmap='hot')
+                    ax.set_title(name)
+                    ax.axis('off')
+                plt.tight_layout()
+                plt.savefig(os.path.join(save_dir, f'risk_batch{iter_num}_sample{i}.png'), dpi=100, bbox_inches='tight')
+                plt.close(fig)
+
         return M_r, M_l
 
     def compute_loss(self, batch_data, iter_num=0, epoch=0):
@@ -167,22 +224,7 @@ class GeoRiskSPCStrategyV2(BaseTrainingStrategy):
 
                 # Compute risk map
                 if unlabeled_depth is not None:
-                    M_r, M_l = self._compute_risk_map(unlabeled_depth, teacher_pred)
-                    # Save M_r, M_l as images (1% prob, one image per sample)
-                    if torch.rand(1).item() < 0.01:
-                        save_dir = '/home/guo/project/ssl4mis/data/test'
-                        os.makedirs(save_dir, exist_ok=True)
-                        for i in range(M_r.shape[0]):
-                            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 4))
-                            ax1.imshow(M_r[i, 0].cpu().numpy(), cmap='hot')
-                            ax1.set_title('M_r (High-risk)')
-                            ax1.axis('off')
-                            ax2.imshow(M_l[i, 0].cpu().numpy(), cmap='hot')
-                            ax2.set_title('M_l (Low-risk)')
-                            ax2.axis('off')
-                            plt.tight_layout()
-                            plt.savefig(os.path.join(save_dir, f'risk_batch{iter_num}_sample{i}.png'), dpi=100, bbox_inches='tight')
-                            plt.close(fig)
+                    M_r, M_l = self._compute_risk_map_v2(unlabeled_depth, teacher_pred, iter_num)
                     
         else:
             teacher_pred = None
@@ -215,60 +257,38 @@ class GeoRiskSPCStrategyV2(BaseTrainingStrategy):
         supervised_loss = 0.5 * (loss_dice + loss_ce)
 
         # === Unlabeled losses ===
-        pl_loss = torch.tensor(0.0, device=self.device)
         cons_loss = torch.tensor(0.0, device=self.device)
+        clean_teacher_consistency = torch.tensor(0.0, device=self.device)
+        pert_teacher_consistency = torch.tensor(0.0, device=self.device)
         bd_loss = torch.tensor(0.0, device=self.device)
         consistency_weight = self._get_consistency_weight(iter_num)
 
+        clean_unlabeled = output_clean[self.labeled_bs:]
+        clean_unlabeled_soft = clean_soft[self.labeled_bs:]
+        H, W = clean_unlabeled.shape[2:]
+        M_r_up = F.interpolate(M_r, size=(H, W), mode='nearest')
+        M_l_up = F.interpolate(M_l, size=(H, W), mode='nearest')
+
         if iter_num >= self.consistency_start_iters and B_u > 0 and teacher_pred is not None:
-            clean_unlabeled = output_clean[self.labeled_bs:]
-            clean_unlabeled_soft = clean_soft[self.labeled_bs:]
-            pseudo_label = teacher_pred.argmax(dim=1)
+            clean_teacher_consistency = torch.mean((clean_unlabeled_soft - teacher_pred) ** 2)
 
-            if self.risk_no_supervision:
-                # Standard semi-supervised: all unlabeled pixels get pseudo-label loss
-                pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
-                pl_loss = pl_ce.mean()
-            elif M_r is not None and M_l is not None and output_pert is not None:
-                # Resize masks to prediction spatial size
-                H, W = clean_unlabeled.shape[2:]
-                M_r_up = F.interpolate(M_r, size=(H, W), mode='nearest')
-                M_l_up = F.interpolate(M_l, size=(H, W), mode='nearest')
-
-                # L_pl: low-risk pseudo-label loss
-                pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
-                pl_pixels = M_l_up.sum()
-                if pl_pixels > 0:
-                    pl_loss = (M_l_up.squeeze(1) * pl_ce).sum() / (pl_pixels + 1e-8)
-
-                # L_cons: high-risk soft consistency (KL divergence)
+            if M_r is not None and M_l is not None and output_pert is not None:
                 pert_unlabeled_soft = torch.softmax(output_pert[self.labeled_bs:], dim=1)
-                kl = self.kl_loss(
-                    torch.log(pert_unlabeled_soft + 1e-8),
-                    clean_unlabeled_soft.detach()
-                ).sum(dim=1, keepdim=True)
-                r_pixels = M_r_up.sum()
-                if r_pixels > 0:
-                    cons_loss = (M_r_up * kl).sum() / (r_pixels + 1e-8)
+                pert_teacher_consistency = torch.mean((pert_unlabeled_soft - teacher_pred) ** 2)
 
-                # L_bd: boundary consistency
-                grad_clean = _sobel_gradient_magnitude(clean_unlabeled_soft.detach())
-                grad_pert = _sobel_gradient_magnitude(pert_unlabeled_soft)
-                bd_diff = torch.abs(grad_clean - grad_pert)
-                if r_pixels > 0:
-                    bd_loss = (M_r_up * bd_diff).sum() / (r_pixels + 1e-8)
+        else:
+            cons_loss = clean_teacher_consistency + pert_teacher_consistency
 
         total_loss = (supervised_loss
-                      + consistency_weight * self.pl_weight * pl_loss
-                      + consistency_weight * self.cons_weight * cons_loss
-                      + consistency_weight * self.bd_weight * bd_loss)
+                      + consistency_weight * self.cons_weight * cons_loss)
 
         return {
             'total': total_loss,
             'ce': loss_ce,
             'dice': loss_dice,
-            'pl': pl_loss,
             'consistency': cons_loss,
+            'clean_teacher_consistency': clean_teacher_consistency,
+            'pert_teacher_consistency': pert_teacher_consistency,
             'boundary': bd_loss,
             'consistency_weight': consistency_weight,
         }

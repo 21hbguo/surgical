@@ -503,11 +503,11 @@ class UNet_GeoRiskSPC(nn.Module):
         self.decoder_pert = Decoder(params, filter_num)
         self.perturbation = RiskGuidedPerturbation(dropout_rate, noise_std)
 
-    def forward(self, x, risk_mask=None):
+    def forward(self, x, M_r=None):
         feature = self.encoder(x)
         p_clean = self.decoder(feature)
-        if risk_mask is not None:
-            feat_pert = self.perturbation(feature[4], risk_mask)
+        if M_r is not None:
+            feat_pert = self.perturbation(feature[4], M_r)
             feature_pert = list(feature)
             feature_pert[4] = feat_pert
             p_pert = self.decoder_pert(feature_pert)
@@ -546,12 +546,12 @@ class UNet_DepthGuiderV4_GeoRiskSPC(nn.Module):
         depth = x[:, 3:4, :, :] if x.shape[1] >= 4 else rgb[:, :1, :, :]
         return rgb, depth
 
-    def forward(self, x, risk_mask=None):
+    def forward(self, x, M_r=None):
         rgb, depth = self._split_rgb_depth(x)
         feature = self.encoder(rgb, depth)
         p_clean = self.decoder(feature)
-        if risk_mask is not None:
-            feat_pert = self.perturbation(feature[4], risk_mask)
+        if M_r is not None:
+            feat_pert = self.perturbation(feature[4], M_r)
             feature_pert = list(feature)
             feature_pert[4] = feat_pert
             p_pert = self.decoder_pert(feature_pert)

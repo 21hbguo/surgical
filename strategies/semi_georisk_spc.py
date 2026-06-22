@@ -99,7 +99,6 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         self.bd_weight = args.risk_bd_weight
         self.risk_source = args.risk_source
         self.risk_no_supervision = args.risk_no_supervision
-        self.kl_loss = nn.KLDivLoss(reduction='none')
 
     def _compute_risk_map(self, depth, teacher_pred):
         """Compute geometry-aware risk map from depth and teacher predictions.
@@ -173,7 +172,7 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         B_u = unlabeled_image.shape[0]
 
         # Risk mask placeholder
-        risk_mask = None
+        M_r = None
         M_l = None
 
         # Teacher forward + risk map (only when unlabeled data exists)
@@ -189,7 +188,7 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
 
                 # Compute risk map
                 if unlabeled_depth is not None:
-                    risk_mask, M_l = self._compute_risk_map(unlabeled_depth, teacher_pred)
+                    M_r, M_l = self._compute_risk_map(unlabeled_depth, teacher_pred)
         else:
             teacher_pred = None
 
@@ -200,11 +199,11 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         stud_volume = torch.cat([stud_image, depth_tensor], dim=1) if depth_tensor is not None else stud_image
 
         # Build full-batch risk mask (zeros for labeled, actual mask for unlabeled)
-        if risk_mask is not None:
+        if M_r is not None:
             B_full = stud_volume.shape[0]
-            full_risk_mask = torch.zeros(B_full, 1, *risk_mask.shape[2:], device=self.device)
-            full_risk_mask[self.labeled_bs:] = risk_mask
-            output_clean, output_pert = self.model(stud_volume, risk_mask=full_risk_mask)
+            full_M_r = torch.zeros(B_full, 1, *M_r.shape[2:], device=self.device)
+            full_M_r[self.labeled_bs:] = M_r
+            output_clean, output_pert = self.model(stud_volume, M_r=full_M_r)
         else:
             output_clean = self.model(stud_volume)
             output_pert = None
@@ -224,46 +223,41 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
         # === Unlabeled losses ===
         pl_loss = torch.tensor(0.0, device=self.device)
         cons_loss = torch.tensor(0.0, device=self.device)
+        clean_teacher_consistency = torch.tensor(0.0, device=self.device)
+        pert_teacher_consistency = torch.tensor(0.0, device=self.device)
         bd_loss = torch.tensor(0.0, device=self.device)
         consistency_weight = self._get_consistency_weight(iter_num)
 
         if iter_num >= self.consistency_start_iters and B_u > 0 and teacher_pred is not None:
             clean_unlabeled = output_clean[self.labeled_bs:]
             clean_unlabeled_soft = clean_soft[self.labeled_bs:]
+            clean_teacher_consistency = torch.mean((clean_unlabeled_soft - teacher_pred) ** 2)
             pseudo_label = teacher_pred.argmax(dim=1)
 
             if self.risk_no_supervision:
-                # Standard semi-supervised: all unlabeled pixels get pseudo-label loss
                 pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
                 pl_loss = pl_ce.mean()
-            elif risk_mask is not None and M_l is not None and output_pert is not None:
-                # Resize masks to prediction spatial size
+            elif M_r is not None and M_l is not None and output_pert is not None:
                 H, W = clean_unlabeled.shape[2:]
-                M_r_up = F.interpolate(risk_mask, size=(H, W), mode='nearest')
+                M_r_up = F.interpolate(M_r, size=(H, W), mode='nearest')
                 M_l_up = F.interpolate(M_l, size=(H, W), mode='nearest')
-
-                # L_pl: low-risk pseudo-label loss
                 pl_ce = F.cross_entropy(clean_unlabeled, pseudo_label.long(), reduction='none')
                 pl_pixels = M_l_up.sum()
                 if pl_pixels > 0:
                     pl_loss = (M_l_up.squeeze(1) * pl_ce).sum() / (pl_pixels + 1e-8)
-
-                # L_cons: high-risk soft consistency (KL divergence)
                 pert_unlabeled_soft = torch.softmax(output_pert[self.labeled_bs:], dim=1)
-                kl = self.kl_loss(
-                    torch.log(pert_unlabeled_soft + 1e-8),
-                    clean_unlabeled_soft.detach()
-                ).sum(dim=1, keepdim=True)
+                pert_teacher_consistency = torch.mean((pert_unlabeled_soft - teacher_pred) ** 2)
                 r_pixels = M_r_up.sum()
-                if r_pixels > 0:
-                    cons_loss = (M_r_up * kl).sum() / (r_pixels + 1e-8)
-
-                # L_bd: boundary consistency
+                cons_loss = clean_teacher_consistency + pert_teacher_consistency
                 grad_clean = self._compute_boundary_gradients(clean_unlabeled_soft.detach())
                 grad_pert = self._compute_boundary_gradients(pert_unlabeled_soft)
                 bd_diff = torch.abs(grad_clean - grad_pert)
                 if r_pixels > 0:
                     bd_loss = (M_r_up * bd_diff).sum() / (r_pixels + 1e-8)
+            else:
+                cons_loss = clean_teacher_consistency
+        else:
+            cons_loss = clean_teacher_consistency + pert_teacher_consistency
 
         total_loss = (supervised_loss
                       + consistency_weight * self.pl_weight * pl_loss
@@ -276,6 +270,8 @@ class GeoRiskSPCStrategy(BaseTrainingStrategy):
             'dice': loss_dice,
             'pl': pl_loss,
             'consistency': cons_loss,
+            'clean_teacher_consistency': clean_teacher_consistency,
+            'pert_teacher_consistency': pert_teacher_consistency,
             'boundary': bd_loss,
             'consistency_weight': consistency_weight,
         }
