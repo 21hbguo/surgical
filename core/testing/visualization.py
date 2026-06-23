@@ -115,9 +115,13 @@ def colorize_test_mask(mask: np.ndarray, num_classes: int) -> np.ndarray:
 
 def _build_overlay(image: np.ndarray, mask: np.ndarray, num_classes: int, alpha: float = 0.45) -> np.ndarray:
     rgb_image = _prepare_rgb_image(image)
+    h, w = rgb_image.shape[:2]
+    mask = np.asarray(mask)
+    if mask.shape != (h, w):
+        mask = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
     mask_rgb = colorize_test_mask(mask, num_classes)
     overlay = rgb_image.astype(np.float32).copy()
-    mask_pixels = np.asarray(mask) > 0
+    mask_pixels = mask > 0
     overlay[mask_pixels] = (1.0 - alpha) * overlay[mask_pixels] + alpha * mask_rgb[mask_pixels].astype(np.float32)
     return np.clip(overlay, 0, 255).astype(np.uint8)
 
