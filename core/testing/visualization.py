@@ -127,7 +127,9 @@ def _build_overlay(image: np.ndarray, mask: np.ndarray, num_classes: int, alpha:
 
 
 def save_test_rgb_visualization(image, label, pred, output_dir, case_name, mode, num_classes, alpha: float = 0.45):
-    if mode == 3:
+    if mode == 4:
+        result = colorize_test_mask(pred, num_classes)
+    elif mode == 3:
         result = _build_overlay(image, label, num_classes, alpha=alpha)
     else:
         pred_overlay = _build_overlay(image, pred, num_classes, alpha=alpha)

@@ -78,18 +78,16 @@ def main():
         # 读取第一张图获取尺寸
         sample_img = load_image(os.path.join(fully_rgb_dir, selected_images[0]))
         w, h = sample_img.size
-        crop_w = w // 2  # 裁剪右半部分
-        label_w = crop_w  # label 用同样宽度
 
         # 布局参数
-        cell_w = crop_w
+        cell_w = w
         cell_h = h
         row_title_h = 30  # 行标题高度
         col_title_h = 25  # 列标题高度
         gap = 4  # 间距
 
         # 创建画布
-        total_w = label_w + n_models * cell_w + (n_models) * gap + gap
+        total_w = (n_models + 1) * cell_w + (n_models + 1) * gap
         total_h = col_title_h + n_samples * (cell_h + gap) + row_title_h + gap
         canvas = Image.new("RGB", (total_w, total_h), (255, 255, 255))
 
@@ -133,7 +131,7 @@ def main():
                 label_arr = np.array(label_img)
                 if label_arr.max() <= 1:
                     label_arr = (label_arr * 255).astype(np.uint8)
-                label_img = Image.fromarray(label_arr).resize((crop_w, cell_h), Image.NEAREST)
+                label_img = Image.fromarray(label_arr).resize((cell_w, cell_h), Image.NEAREST)
                 x = gap
                 canvas.paste(label_img, (x, y_row + row_title_h))
 
@@ -145,12 +143,9 @@ def main():
                 img_path = os.path.join(args.task_dir, model, subdir, fold, "rgb", img_name)
                 if not os.path.exists(img_path):
                     continue
-                img = load_image(img_path)
-                # 裁剪右半部分
-                right_half = img.crop((crop_w, 0, w, h))
-                right_half = right_half.resize((crop_w, cell_h), Image.NEAREST)
+                img = load_image(img_path).resize((cell_w, cell_h), Image.NEAREST)
                 x = gap + (col_idx + 1) * (cell_w + gap)
-                canvas.paste(right_half, (x, y_row + row_title_h))
+                canvas.paste(img, (x, y_row + row_title_h))
 
         # 保存
         output_path = os.path.join(args.output_dir, f"model_comparison_{fold}.png")
