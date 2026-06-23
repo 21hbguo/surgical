@@ -41,6 +41,8 @@ METRIC_PAIRS = (
     ('Precision', 'precision'),
     ('Recall', 'recall'),
     ('Acc', 'acc'),
+)
+DISTANCE_METRIC_PAIRS = (
     ('HD95', 'hd95'),
     ('ASD', 'asd'),
 )
@@ -211,21 +213,27 @@ def _build_test_loader(args, fold, fold_map):
     ), is_depth, depth_channels
 
 
-def calculate_metric_percase(pred, gt, smooth=1e-6):
+def _get_active_metric_pairs(args):
+    return METRIC_PAIRS + DISTANCE_METRIC_PAIRS if int(args.distance_metrics) else METRIC_PAIRS
+
+
+def calculate_metric_percase(pred, gt, distance_metrics=False, smooth=1e-6):
     pred = pred.astype(np.uint8)
     gt = gt.astype(np.uint8)
     if pred.sum() == 0 and gt.sum() == 0:
-        return {
-            'Dice': float('nan'),
-            'IoU': float('nan'),
+        metrics = {
+            'Dice': 1.0,
+            'IoU': 1.0,
             'TP': 0.0,
             'FP': 0.0,
             'FN': 0.0,
             'Acc': float((pred == gt).mean()),
-            'HD95': float('nan'),
-            'ASD': float('nan'),
-            'Valid': False,
+            'Valid': True,
         }
+        if distance_metrics:
+            metrics['HD95'] = 0.0
+            metrics['ASD'] = 0.0
+        return metrics
     intersection = np.logical_and(pred, gt).sum()
     union = np.logical_or(pred, gt).sum()
     dice = (2.0 * intersection + smooth) / (pred.sum() + gt.sum() + smooth)
@@ -234,21 +242,25 @@ def calculate_metric_percase(pred, gt, smooth=1e-6):
     fp = float(np.logical_and(pred, np.logical_not(gt)).sum())
     fn = float(np.logical_and(np.logical_not(pred), gt).sum())
     acc = float((pred == gt).mean())
-    hd95 = float('nan')
-    asd = float('nan')
-    if pred.sum() > 0 and gt.sum() > 0:
-        pred_mask = pred.astype(bool)
-        gt_mask = gt.astype(bool)
-        structure = generate_binary_structure(pred_mask.ndim, 1)
-        pred_surface = np.logical_xor(pred_mask, binary_erosion(pred_mask, structure=structure, border_value=0))
-        gt_surface = np.logical_xor(gt_mask, binary_erosion(gt_mask, structure=structure, border_value=0))
-        if pred_surface.any() and gt_surface.any():
-            pred_to_gt = distance_transform_edt(~gt_surface)[pred_surface]
-            gt_to_pred = distance_transform_edt(~pred_surface)[gt_surface]
-            surface_distances = np.concatenate([pred_to_gt, gt_to_pred]).astype(np.float64)
-            hd95 = float(np.percentile(surface_distances, 95))
-            asd = float(surface_distances.mean())
-    return {'Dice': dice, 'IoU': iou, 'TP': tp, 'FP': fp, 'FN': fn, 'Acc': acc, 'HD95': hd95, 'ASD': asd, 'Valid': True}
+    metrics = {'Dice': dice, 'IoU': iou, 'TP': tp, 'FP': fp, 'FN': fn, 'Acc': acc, 'Valid': True}
+    if distance_metrics:
+        hd95 = float('nan')
+        asd = float('nan')
+        if pred.sum() > 0 and gt.sum() > 0:
+            pred_mask = pred.astype(bool)
+            gt_mask = gt.astype(bool)
+            structure = generate_binary_structure(pred_mask.ndim, 1)
+            pred_surface = np.logical_xor(pred_mask, binary_erosion(pred_mask, structure=structure, border_value=0))
+            gt_surface = np.logical_xor(gt_mask, binary_erosion(gt_mask, structure=structure, border_value=0))
+            if pred_surface.any() and gt_surface.any():
+                pred_to_gt = distance_transform_edt(~gt_surface)[pred_surface]
+                gt_to_pred = distance_transform_edt(~pred_surface)[gt_surface]
+                surface_distances = np.concatenate([pred_to_gt, gt_to_pred]).astype(np.float64)
+                hd95 = float(np.percentile(surface_distances, 95))
+                asd = float(surface_distances.mean())
+        metrics['HD95'] = hd95
+        metrics['ASD'] = asd
+    return metrics
 
 
 def _resize_mask_to_shape(mask: np.ndarray, target_shape) -> np.ndarray:
@@ -297,20 +309,37 @@ def inference(
         original_labels = batch.get('original_label', labels)
         cases = batch['case']
         original_images = batch.get('original_image', [None] * len(cases))
+        batch_sample = {'image': torch.stack(batch['image'], dim=0)}
+        use_batch_forward = True
+        for depth_key in ('depth3', 'depth1'):
+            depth_values = batch.get(depth_key)
+            if depth_values is None:
+                continue
+            if any(depth_value is None for depth_value in depth_values):
+                use_batch_forward = False
+                break
+            batch_sample[depth_key] = torch.stack(depth_values, dim=0)
+        batch_outputs = _predict_logits(args, model, strategy, batch_sample, device, use_grad=False) if use_batch_forward else None
+        batch_preds = torch.argmax(torch.softmax(batch_outputs, dim=1), dim=1).cpu().numpy() if batch_outputs is not None else None
         for index, case in enumerate(cases):
-            sample_batch = {"image": batch["image"][index].unsqueeze(0)}
-            for depth_key in ("depth3", "depth1"):
-                depth_values = batch.get(depth_key)
-                if depth_values is None:
-                    continue
-                depth_value = depth_values[index]
-                if depth_value is not None:
-                    sample_batch[depth_key] = depth_value.unsqueeze(0)
-            sample_batch["label"] = labels[index]
             label_value = original_labels[index] if original_labels[index] is not None else labels[index]
             label_np = label_value.cpu().numpy() if torch.is_tensor(label_value) else np.asarray(label_value)
-            outputs = _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
-            pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze().cpu().numpy()
+            if batch_outputs is None:
+                sample_batch = {'image': batch['image'][index].unsqueeze(0)}
+                for depth_key in ('depth3', 'depth1'):
+                    depth_values = batch.get(depth_key)
+                    if depth_values is None:
+                        continue
+                    depth_value = depth_values[index]
+                    if depth_value is not None:
+                        sample_batch[depth_key] = depth_value.unsqueeze(0)
+                sample_batch['label'] = labels[index]
+                outputs = _predict_logits(args, model, strategy, sample_batch, device, use_grad=False)
+                pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze().cpu().numpy()
+            else:
+                sample_batch = None
+                outputs = batch_outputs[index:index + 1]
+                pred = batch_preds[index]
             if args.rgb and rgb_output_dir is not None and original_images[index] is not None:
                 label_vis_np = label_np
                 if args.rgb == 2:
@@ -333,6 +362,16 @@ def inference(
                 and gradcam_hooks is not None
                 and gradcam_hooks.layer_names
             ):
+                if sample_batch is None:
+                    sample_batch = {'image': batch['image'][index].unsqueeze(0)}
+                    for depth_key in ('depth3', 'depth1'):
+                        depth_values = batch.get(depth_key)
+                        if depth_values is None:
+                            continue
+                        depth_value = depth_values[index]
+                        if depth_value is not None:
+                            sample_batch[depth_key] = depth_value.unsqueeze(0)
+                    sample_batch['label'] = labels[index]
                 class_heats = []
                 has_any_heat = False
                 for class_idx in range(int(args.num_classes)):
@@ -378,7 +417,7 @@ def inference(
                     seq = int(match.group())
                     break
             for cls in range(1, args.num_classes):
-                metrics = calculate_metric_percase(pred_for_metrics == cls, label_np == cls)
+                metrics = calculate_metric_percase(pred_for_metrics == cls, label_np == cls, distance_metrics=bool(args.distance_metrics))
                 metrics['Case'] = case
                 metrics['Class'] = cls
                 metrics['Fold'] = fold_label
@@ -404,7 +443,10 @@ def summarize_metrics(all_metrics, num_classes=2):
         if values.size == 0:
             return 'nan ± nan'
         return f'{values.mean():.4f} ± {values.std():.4f}'
-    for summary_metric, _ in SUMMARY_METRIC_PAIRS:
+    active_metric_pairs = METRIC_PAIRS
+    if any(('HD95' in metric) or ('ASD' in metric) for metric in valid_metrics):
+        active_metric_pairs = METRIC_PAIRS + DISTANCE_METRIC_PAIRS
+    for summary_metric, _ in active_metric_pairs:
         if summary_metric in derived_metric_values:
             values = derived_metric_values[summary_metric]
         else:
@@ -418,7 +460,7 @@ def summarize_metrics(all_metrics, num_classes=2):
             'Precision': [item['TP'] / (item['TP'] + item['FP']) if (item['TP'] + item['FP']) > 0 else 0.0 for item in class_metrics],
             'Recall': [item['TP'] / (item['TP'] + item['FN']) if (item['TP'] + item['FN']) > 0 else 0.0 for item in class_metrics],
         }
-        for per_class_metric, _ in PER_CLASS_METRIC_PAIRS:
+        for per_class_metric, _ in active_metric_pairs:
             if per_class_metric in derived_class_metric_values:
                 values = derived_class_metric_values[per_class_metric]
             else:

@@ -35,6 +35,11 @@ class TestRequestedFolds(unittest.TestCase):
             test_core.PER_CLASS_METRIC_PAIRS,
         )
 
+    def test_distance_metrics_default_off(self):
+        parser = test_core.build_test_feature_parser()
+        args = parser.parse_args(["--task", "1"])
+        self.assertEqual(args.distance_metrics, 0)
+
     def test_test_module_outsources_visualization_and_export_details(self):
         project_root = Path(__file__).resolve().parents[1]
         test_source = (project_root / "core" / "test.py").read_text(encoding="utf-8")
@@ -220,10 +225,32 @@ class TestInMemoryAggregation(unittest.TestCase):
             ]
         ).numpy()
 
-        metrics = test_core.calculate_metric_percase(pred, gt)
+        metrics = test_core.calculate_metric_percase(pred, gt, distance_metrics=True)
 
         self.assertAlmostEqual(metrics["HD95"], 1.0, places=6)
         self.assertAlmostEqual(metrics["ASD"], 0.5, places=6)
+
+    def test_calculate_metric_percase_skips_distance_metrics_by_default(self):
+        gt = torch.tensor([[0, 1], [0, 1]]).numpy()
+        pred = torch.tensor([[0, 1], [1, 0]]).numpy()
+
+        metrics = test_core.calculate_metric_percase(pred, gt)
+
+        self.assertNotIn("HD95", metrics)
+        self.assertNotIn("ASD", metrics)
+
+    def test_calculate_metric_percase_empty_empty_counts_as_correct(self):
+        gt = torch.zeros((2, 2), dtype=torch.int64).numpy()
+        pred = torch.zeros((2, 2), dtype=torch.int64).numpy()
+
+        metrics = test_core.calculate_metric_percase(pred, gt, distance_metrics=True)
+
+        self.assertEqual(metrics["Dice"], 1.0)
+        self.assertEqual(metrics["IoU"], 1.0)
+        self.assertEqual(metrics["Acc"], 1.0)
+        self.assertEqual(metrics["HD95"], 0.0)
+        self.assertEqual(metrics["ASD"], 0.0)
+        self.assertTrue(metrics["Valid"])
 
     def test_build_fold_rows_keeps_distance_metrics_unscaled(self):
         records = [
@@ -237,6 +264,14 @@ class TestInMemoryAggregation(unittest.TestCase):
         self.assertEqual(rows[0]["Avg_asd"], "2.00 ± 0.50")
         self.assertEqual(rows[0]["C1_hd95"], "5.00 ± 1.00")
         self.assertEqual(rows[0]["C1_asd"], "2.00 ± 0.50")
+
+    def test_build_fold_rows_omits_distance_metrics_when_absent(self):
+        rows = test_core.build_fold_rows(self.records, num_classes=2)
+
+        self.assertNotIn("Avg_hd95", rows[0])
+        self.assertNotIn("Avg_asd", rows[0])
+        self.assertNotIn("C1_hd95", rows[0])
+        self.assertNotIn("C1_asd", rows[0])
 
 
 class TestMainOutputs(unittest.TestCase):
@@ -316,6 +351,79 @@ class TestMainOutputs(unittest.TestCase):
             test_core.main()
             excel_writer_mock.assert_not_called()
             test_core.parse_requested_folds.assert_called_once_with(None, 1)
+
+
+class TestInferenceConsistency(unittest.TestCase):
+    def test_batch_inference_matches_per_sample_outputs(self):
+        args = SimpleNamespace(
+            feat_vis=0,
+            conf_vis=0,
+            rgb=0,
+            distance_metrics=0,
+            num_classes=2,
+            feat_vis_max_cases=10,
+            feat_vis_layer="",
+            feat_vis_all_layers=1,
+            feat_vis_max_layers=0,
+            feat_vis_alpha=0.45,
+            feat_vis_target_class=-1,
+            way="fully",
+        )
+        batch = {
+            "image": [
+                torch.tensor([[[0.0, 0.0], [0.0, 0.0]]], dtype=torch.float32),
+                torch.tensor([[[1.0, 1.0], [1.0, 1.0]]], dtype=torch.float32),
+            ],
+            "label": [
+                torch.tensor([[0, 1], [0, 1]], dtype=torch.int64),
+                torch.tensor([[1, 0], [1, 0]], dtype=torch.int64),
+            ],
+            "original_label": [
+                torch.tensor([[0, 1], [0, 1]], dtype=torch.int64),
+                torch.tensor([[1, 0], [1, 0]], dtype=torch.int64),
+            ],
+            "case": ["case_1_a", "case_2_b"],
+            "original_image": [None, None],
+        }
+
+        class Loader:
+            def __iter__(self):
+                yield batch
+
+        class Model(torch.nn.Module):
+            def forward(self, x):
+                b, _, h, w = x.shape
+                logits = torch.zeros((b, 2, h, w), dtype=x.dtype, device=x.device)
+                logits[:, 0] = 1.0 - x[:, 0]
+                logits[:, 1] = x[:, 0]
+                return logits
+
+        model = Model()
+        records = test_core.inference(args, model, Loader(), torch.device("cpu"))
+        expected = []
+        for index, case in enumerate(batch["case"]):
+            image = batch["image"][index].unsqueeze(0)
+            outputs = model(image)
+            pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze().cpu().numpy()
+            label_np = batch["original_label"][index].cpu().numpy()
+            metrics = test_core.calculate_metric_percase(pred == 1, label_np == 1)
+            metrics["Case"] = case
+            metrics["Class"] = 1
+            metrics["Fold"] = "f0"
+            metrics["Seq"] = index + 1
+            expected.append(metrics)
+
+        self.assertEqual(len(records), len(expected))
+        for record, exp in zip(records, expected):
+            self.assertEqual(record["Case"], exp["Case"])
+            self.assertEqual(record["Class"], exp["Class"])
+            self.assertEqual(record["Fold"], exp["Fold"])
+            self.assertEqual(record["Seq"], exp["Seq"])
+            self.assertAlmostEqual(record["Dice"], exp["Dice"], places=6)
+            self.assertAlmostEqual(record["IoU"], exp["IoU"], places=6)
+            self.assertAlmostEqual(record["Acc"], exp["Acc"], places=6)
+            self.assertNotIn("HD95", record)
+            self.assertNotIn("ASD", record)
 
 
 if __name__ == "__main__":

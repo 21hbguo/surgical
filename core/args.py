@@ -175,6 +175,7 @@ def add_test_args(parser):
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--checkpoint-type", "--pth", "--pth_type", dest="requested_checkpoint_type", type=str, default="best", choices=["best", "final", "latest"])
     parser.add_argument("--rgb", type=int, default=0, choices=[0, 1, 2, 3], help="0=off, 1=pred overlay, 2=label/pred side-by-side, 3=label only")
+    parser.add_argument("--distance_metrics", type=int, default=0, choices=[0, 1])
     parser.add_argument("--no_val", action="store_true", default=False)
     parser.add_argument("--train_result_root", type=str, default="../result_train", help="train checkpoint root used by test")
     parser.add_argument("--data-format", type=str, default="png", choices=["png", "h5"], help="Test data storage format.")

@@ -13,11 +13,11 @@ CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt --exp en
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way uamt --exp endovis2017/UAMT --labeled_num 40 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way urpc --exp endovis2017/URPC --labeled_num 40 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way cps --exp endovis2017/CPS --labeled_num 40 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way u2pl --exp endovis2017/U2PL --labeled_num 40 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way segmatch --exp endovis2017/SegMatch --labeled_num 40 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way unimatch --exp endovis2017/UniMatch --labeled_num 40 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way corrmatch --exp endovis2017/CorrMatch --labeled_num 40 && \
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way cwbass --exp endovis2017/CW-BASS --labeled_num 40 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way u2pl --exp endovis2017/U2PL_official --labeled_num 40 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way segmatch --exp endovis2017/SegMatch_official --labeled_num 40 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way unimatch --exp endovis2017/UniMatch_official --labeled_num 40 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way corrmatch --exp endovis2017/CorrMatch_official --labeled_num 40 && \
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way cwbass --exp endovis2017/CW-BASS_official --labeled_num 40 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v4 --exp endovis2017/MT_depth_guider_v4 --labeled_num 40 --use_depth 1 && \
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way georisk_spc_dgv4 --exp endovis2017/GeoRiskSPC_DGv4 --labeled_num 40 --use_depth 1
 

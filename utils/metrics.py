@@ -59,15 +59,15 @@ def calculate_segmentation_case_metrics(pred, gt, num_classes):
         gt_cls = gt == cls
         if pred_cls.sum() == 0 and gt_cls.sum() == 0:
             records.append({
-                "Dice": float("nan"),
-                "IoU": float("nan"),
+                "Dice": 1.0,
+                "IoU": 1.0,
                 "TP": 0.0,
                 "FP": 0.0,
                 "FN": 0.0,
                 "Acc": float((pred_cls == gt_cls).mean()),
-                "HD95": float("nan"),
-                "ASD": float("nan"),
-                "Valid": False,
+                "HD95": 0.0,
+                "ASD": 0.0,
+                "Valid": True,
                 "Class": cls,
             })
             continue
