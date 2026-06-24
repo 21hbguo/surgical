@@ -382,11 +382,15 @@ class Trainer:
         self.last_val_iter = self.iter_num
 
         csv_path = os.path.join(self.snapshot_path, "metrics.csv")
-        train_loss = loss_dict.get("total", 0.0) if loss_dict else 0.0
-        if isinstance(train_loss, torch.Tensor):
-            train_loss = float(train_loss.detach().item())
         current_lr = self.lr_scheduler.get_last_lr() if hasattr(self.lr_scheduler, 'get_last_lr') else [pg['lr'] for pg in self.strategy.optimizer.param_groups]
-        csv_vars = {"train_loss": train_loss, "lr": current_lr[0] if isinstance(current_lr, list) else current_lr}
+        csv_vars = {"lr": current_lr[0] if isinstance(current_lr, list) else current_lr}
+        if loss_dict:
+            for key, value in loss_dict.items():
+                if isinstance(value, torch.Tensor):
+                    value = float(value.detach().item())
+                csv_vars["train_loss" if key == "total" else f"train_{key}"] = value
+        else:
+            csv_vars["train_loss"] = 0.0
         if is_depth_pretrain:
             csv_vars["psnr"] = mean_psnr
             csv_vars["ssim"] = mean_ssim
