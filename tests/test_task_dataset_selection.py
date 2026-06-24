@@ -321,6 +321,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             normalize="minmax",
             task=1,
             batch_size=1,
+            data_format="png",
         )
 
         with patch.object(test_core, "TEST_NUM_WORKERS", 0):
@@ -350,6 +351,7 @@ class TaskDatasetSelectionTest(unittest.TestCase):
             normalize="255",
             task=1,
             batch_size=1,
+            data_format="png",
         )
 
         with patch.object(test_core, "TEST_NUM_WORKERS", 0):

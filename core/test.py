@@ -28,7 +28,7 @@ from core.testing import (
     save_multiclass_gradcam_visualization,
     save_test_rgb_visualization,
 )
-from data import BaseDataSets
+from data import BaseDataSets, H5DataSets
 from models.factory import create_model
 from strategies import create_strategy
 from utils.common import CHECKPOINT_INFO_KEYS, build_run_output_dir, get_fold_seqs_from_path
@@ -188,20 +188,33 @@ def _collate_test_batch(batch):
 def _build_test_loader(args, fold, fold_map):
     depth_channels = args.use_depth if args.use_depth else None
     is_depth = bool(depth_channels)
-    test_dataset = BaseDataSets(
-        base_dir=args.root_path,
-        split='test',
-        fold=fold,
-        resize_size=tuple(args.resize_size),
-        load_mode='path',
-        depth_channels=depth_channels if is_depth else None,
-        depth_uint=int(args.depth_uint),
-        normalize_method=args.normalize,
-        fold_map=fold_map,
-        use_val=False,
-        for_inference=True,
-        task=args.task,
-    )
+    if args.data_format == "h5":
+        test_dataset = H5DataSets(
+            base_dir=args.root_path,
+            split='test',
+            fold=fold,
+            depth_channels=depth_channels if is_depth else None,
+            depth_uint=int(args.depth_uint),
+            fold_map=fold_map,
+            use_val=False,
+            for_inference=True,
+            task=args.task,
+        )
+    else:
+        test_dataset = BaseDataSets(
+            base_dir=args.root_path,
+            split='test',
+            fold=fold,
+            resize_size=tuple(args.resize_size),
+            load_mode='path',
+            depth_channels=depth_channels if is_depth else None,
+            depth_uint=int(args.depth_uint),
+            normalize_method=args.normalize,
+            fold_map=fold_map,
+            use_val=False,
+            for_inference=True,
+            task=args.task,
+        )
 
     return test_dataset, DataLoader(
         test_dataset,

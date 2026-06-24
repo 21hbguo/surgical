@@ -178,7 +178,7 @@ def add_test_args(parser):
     parser.add_argument("--distance_metrics", type=int, default=0, choices=[0, 1])
     parser.add_argument("--no_val", action="store_true", default=False)
     parser.add_argument("--train_result_root", type=str, default="../result_train", help="train checkpoint root used by test")
-    parser.add_argument("--data-format", type=str, default="png", choices=["png", "h5"], help="Test data storage format.")
+    parser.add_argument("--data-format", type=str, default="h5", choices=["png", "h5"], help="Test data storage format.")
 
 
 def build_train_parser():

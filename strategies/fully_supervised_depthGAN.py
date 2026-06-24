@@ -27,14 +27,14 @@ class DepthGANDiscriminator(nn.Module):
 class FullySupervisedDepthGANStrategy(BaseTrainingStrategy):
     @staticmethod
     def add_args(parser):
-        parser.add_argument("--gan_loss_weight", type=float, default=0.01)
-        parser.add_argument("--gan_lr", type=float, default=1e-4)
+        parser.add_argument("--gan_loss_weight", type=float, default=0.1)
+        parser.add_argument("--gan_lr", type=float, default=1e-5)
 
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
         self.gan_loss_weight = float(args.gan_loss_weight)
         depth_chns = 1 if int(args.use_depth) == 13 else int(args.use_depth)
-        self.discriminator = DepthGANDiscriminator(args.in_chns + depth_chns + args.num_classes).to(device)
+        self.discriminator = DepthGANDiscriminator(args.num_classes * depth_chns).to(device)
         self.gan_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=float(args.gan_lr), betas=(0.9, 0.99), weight_decay=0.0001)
         self.gan_loss = nn.BCEWithLogitsLoss()
 
@@ -49,8 +49,11 @@ class FullySupervisedDepthGANStrategy(BaseTrainingStrategy):
         loss_ce = self.ce_loss(output, label.long())
         loss_dice = self.dice_loss(output_soft, label.unsqueeze(1))
         supervised_loss = 0.5 * (loss_dice + loss_ce)
-        pred_input = torch.cat([image, depth, output_soft], dim=1)
-        gan_logits = self.discriminator(pred_input)
+        if depth.shape[1] == 1:
+            pred_depth = output_soft * depth
+        else:
+            pred_depth = (output_soft.unsqueeze(2) * depth.unsqueeze(1)).flatten(1, 2)
+        gan_logits = self.discriminator(pred_depth)
         gan_target = torch.ones_like(gan_logits)
         gan_adv = self.gan_loss(gan_logits, gan_target)
         total_loss = supervised_loss + self.gan_loss_weight * gan_adv
@@ -73,9 +76,15 @@ class FullySupervisedDepthGANStrategy(BaseTrainingStrategy):
                 output = output[0]
             output_soft = torch.softmax(output, dim=1)
             label_onehot = F.one_hot(label.long(), num_classes=self.args.num_classes).permute(0, 3, 1, 2).to(image.dtype)
+            if depth.shape[1] == 1:
+                real_depth = label_onehot * depth
+                fake_depth = output_soft * depth
+            else:
+                real_depth = (label_onehot.unsqueeze(2) * depth.unsqueeze(1)).flatten(1, 2)
+                fake_depth = (output_soft.unsqueeze(2) * depth.unsqueeze(1)).flatten(1, 2)
         with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
-            real_logits = self.discriminator(torch.cat([image, depth, label_onehot], dim=1))
-            fake_logits = self.discriminator(torch.cat([image, depth, output_soft], dim=1))
+            real_logits = self.discriminator(real_depth)
+            fake_logits = self.discriminator(fake_depth)
             gan_real = self.gan_loss(real_logits, torch.ones_like(real_logits))
             gan_fake = self.gan_loss(fake_logits, torch.zeros_like(fake_logits))
             gan_disc = 0.5 * (gan_real + gan_fake)
