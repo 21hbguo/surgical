@@ -158,4 +158,4 @@ CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way georisk_spc
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way georisk_spc_dgv4 --exp endovis2017_h5_224_224/GeoRiskSPC_DGv4 --labeled_num 5 --use_depth 1
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way fully_supervised_depthgan --exp endovis2017_h5_224_224/FullyDepthGAN --labeled_num 100 --use_depth 1
 CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way georisk_spc_dgv4_v2 --exp endovis2017_h5_224_224/GeoRiskSPC_DGv4_v2 --labeled_num 40 --use_depth 1
-CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_v4_gan --exp endovis2017_h5_224_224/MT_depth_guider_v4_gan --labeled_num 40 --use_depth 1
+CUDA_VISIBLE_DEVICES=0 python -m core.train --fold -1 --task 1 --way mt_depth_guider_gan_v1 --exp endovis2017_h5_224_224/MT_depth_guider_gan_v1 --labeled_num 40 --use_depth 1

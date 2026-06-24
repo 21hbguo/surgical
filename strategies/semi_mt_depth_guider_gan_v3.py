@@ -1,16 +1,18 @@
-"""MT-DepthGuider-v4-GAN-v1：
-该版本直接把 labeled 和 unlabeled 的 pred-depth 全部送入 GAN，实验中会让未稳定伪标签过早参与对抗。
-保留该文件用于复现实验，不在这里修正逻辑；v2 在新文件中做分阶段和高置信筛选。
+"""MT-DepthGuider-GAN-v3：
+v1 的问题是 GAN 从训练初期就约束 full batch，未标注预测还不稳定时会和 Mean Teacher 一致性目标冲突。
+v3 始终只用 labeled 做 GAN，unlabeled 只走 Mean Teacher 一致性分支，并对 GAN 权重做 ramp-up。
 """
 
 import torch
 import torch.nn.functional as F
 
+from utils.common import sigmoid_rampup
+
 from .base_strategy import BaseTrainingStrategy
 from .fully_supervised_depthGAN import DepthGANDiscriminator
 
 
-class MTDepthGuiderGANV1Strategy(BaseTrainingStrategy):
+class MTDepthGuiderGANV3Strategy(BaseTrainingStrategy):
     @staticmethod
     def add_args(parser):
         parser.add_argument("--gan_loss_weight", type=float, default=0.1)
@@ -52,10 +54,12 @@ class MTDepthGuiderGANV1Strategy(BaseTrainingStrategy):
             consistency_loss = torch.mean((output_soft[self.labeled_bs :] - ema_output_soft) ** 2)
         else:
             consistency_loss = torch.tensor(0.0, device=self.device)
-        pred_depth = output_soft * depth1
-        gan_logits = self.discriminator(pred_depth)
+        fake_depth = output_soft[: self.labeled_bs] * depth1[: self.labeled_bs]
+        gan_logits = self.discriminator(fake_depth)
         gan_adv = self.gan_loss(gan_logits, torch.ones_like(gan_logits))
-        total_loss = supervised_loss + consistency_weight * consistency_loss + self.gan_loss_weight * gan_adv
+        gan_ramp = sigmoid_rampup(iter_num // self.args.consistency_rampup_div, self.args.consistency_rampup)
+        gan_weight = self.gan_loss_weight * gan_ramp
+        total_loss = supervised_loss + consistency_weight * consistency_loss + gan_weight * gan_adv
         return {
             "total": total_loss,
             "ce": loss_ce,
@@ -63,7 +67,8 @@ class MTDepthGuiderGANV1Strategy(BaseTrainingStrategy):
             "consistency": consistency_loss,
             "consistency_weight": consistency_weight,
             "gan_adv": gan_adv,
-            "gan_weight": torch.tensor(self.gan_loss_weight, device=total_loss.device),
+            "gan_weight": torch.tensor(gan_weight, device=total_loss.device),
+            "gan_fake_samples": torch.tensor(fake_depth.shape[0], device=total_loss.device),
         }
 
     def training_step(self, batch_data, iter_num, epoch=0):
@@ -79,7 +84,7 @@ class MTDepthGuiderGANV1Strategy(BaseTrainingStrategy):
             output_soft = torch.softmax(output, dim=1)
             label_onehot = F.one_hot(label[: self.labeled_bs].long(), num_classes=self.args.num_classes).permute(0, 3, 1, 2).to(image.dtype)
             real_depth = label_onehot * depth1[: self.labeled_bs]
-            fake_depth = output_soft * depth1
+            fake_depth = output_soft[: self.labeled_bs] * depth1[: self.labeled_bs]
         with torch.amp.autocast(device_type=self.device.type, enabled=self.amp_enabled):
             real_logits = self.discriminator(real_depth)
             fake_logits = self.discriminator(fake_depth)
@@ -108,15 +113,14 @@ class MTDepthGuiderGANV1Strategy(BaseTrainingStrategy):
     def get_state_dict(self):
         return {
             "model": self.model.state_dict(),
+            "ema_model": self.ema_model.state_dict(),
             "discriminator": self.discriminator.state_dict(),
         }
 
     def load_state_dict(self, state_dict):
         if isinstance(state_dict, dict) and "model" in state_dict:
             self.model.load_state_dict(state_dict["model"])
-            if "ema_model" in state_dict:
-                self.ema_model.load_state_dict(state_dict["ema_model"])
-            if "discriminator" in state_dict:
-                self.discriminator.load_state_dict(state_dict["discriminator"])
+            self.ema_model.load_state_dict(state_dict["ema_model"])
+            self.discriminator.load_state_dict(state_dict["discriminator"])
             return
         self.model.load_state_dict(state_dict)

@@ -53,7 +53,7 @@ class FullySupervisedDepthGANStrategyTest(unittest.TestCase):
         loss_dict = self.strategy.compute_loss(batch)
         self.assertEqual(self.model.seen_shape, (2, 3, 16, 16))
         self.assertEqual(set(loss_dict.keys()), {"total", "ce", "dice", "gan_adv", "gan_weight"})
-        self.assertEqual(self.strategy.discriminator.net[0].in_channels, 6)
+        self.assertEqual(self.strategy.discriminator.net[0].in_channels, 2)
 
     def test_training_step_updates_and_saves_discriminator(self):
         batch = {

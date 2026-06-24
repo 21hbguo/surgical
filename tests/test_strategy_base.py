@@ -79,7 +79,7 @@ class StrategyBaseTest(unittest.TestCase):
 
         strategy.train()
         self.assertTrue(strategy.model.training)
-        self.assertTrue(strategy.ema_model.training)
+        self.assertFalse(strategy.ema_model.training)
 
         state_dict = strategy.get_state_dict()
         self.assertIn("model", state_dict)

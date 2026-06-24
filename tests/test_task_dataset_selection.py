@@ -184,6 +184,8 @@ class TaskDatasetSelectionTest(unittest.TestCase):
                 "endovis2018Binary8/MT",
                 "--way",
                 "mt",
+                "--pretrain",
+                "resnet",
                 "--labeled_num",
                 "40",
                 "--normalize",
@@ -230,8 +232,12 @@ class TaskDatasetSelectionTest(unittest.TestCase):
                 "toy/MT",
                 "--way",
                 "mt",
+                "--pretrain",
+                "resnet",
                 "--labeled_num",
                 "10",
+                "--lr",
+                "3e-5",
             ]
         )
         with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
@@ -987,6 +993,8 @@ class TaskDatasetSelectionTest(unittest.TestCase):
                 "mt_depth_teacher_v1",
                 "--use_depth",
                 "3",
+                "--grad_clip",
+                "0.0",
             ]
         )
         with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):

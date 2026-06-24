@@ -20,7 +20,9 @@ from .semi_mt_depth_guider_proto_teacher_v1 import MTDepthGuiderProtoTeacherV1St
 from .semi_mt_depth_guider_proto_teacher_v2 import MTDepthGuiderProtoTeacherV2Strategy
 from .semi_mt_depth_guider_proto_teacher_v3 import MTDepthGuiderProtoTeacherV3Strategy
 from .semi_mt_depth_guider_proto_v1 import MTDepthGuiderProtoV1Strategy
-from .semi_mt_depth_guider_gan_v1 import MTDepthGuiderV4GANStrategy
+from .semi_mt_depth_guider_gan_v1 import MTDepthGuiderGANV1Strategy
+from .semi_mt_depth_guider_gan_v2 import MTDepthGuiderGANV2Strategy
+from .semi_mt_depth_guider_gan_v3 import MTDepthGuiderGANV3Strategy
 from .semi_mt_depth_guider_v1 import MTDepthGuiderV1Strategy
 from .semi_mt_depth_guider_v2 import MTDepthGuiderV2Strategy
 from .semi_mt_depth_guider_v3 import MTDepthGuiderV3Strategy
@@ -84,7 +86,7 @@ def _spec(
 
 STRATEGY_SPECS = {
     "fully": _spec("fully", FullySupervisedStrategy, is_semi=False, model_suffix=""),
-    "fully_supervised_depthgan": _spec("fully_supervised_depthgan", FullySupervisedDepthGANStrategy, is_semi=False, model_suffix="", in_chns="metadata"),
+    "fully_depthgan": _spec("fully_depthgan", FullySupervisedDepthGANStrategy, is_semi=False, model_suffix="", in_chns="metadata"),
     "fully_reg": _spec("fully_reg", FullyRegSupervisedStrategy, is_semi=False, model_suffix=""),
     "fully_rgb_masking_depth_v1": _spec("fully_rgb_masking_depth_v1", FullyRGBMaskingDepthV1Strategy, is_semi=False, model_suffix="", in_chns="metadata"),
     "fully_depth_pretrain_v1": _spec("fully_depth_pretrain_v1", FullyDepthPretrainStrategy, is_semi=False, model_suffix="depth_pretrain"),
@@ -98,7 +100,9 @@ STRATEGY_SPECS = {
     "mt_depth_guider_v2": _spec("mt_depth_guider_v2", MTDepthGuiderV2Strategy, is_semi=True, model_suffix="depth_guider_v2", in_chns="metadata"),
     "mt_depth_guider_v3": _spec("mt_depth_guider_v3", MTDepthGuiderV3Strategy, is_semi=True, model_suffix="depth_guider_v3", in_chns="metadata"),
     "mt_depth_guider_v4": _spec("mt_depth_guider_v4", MTDepthGuiderV1Strategy, is_semi=True, model_names={"none": "unet_depth_guider_v4", "resnet": "resnet_depth_guider_v4", "depth": "unet_depth_guider_v4", "dinov3": "unet_depth_guider_v4"}, in_chns="metadata"),
-    "mt_depth_guider_v4_gan": _spec("mt_depth_guider_v4_gan", MTDepthGuiderV4GANStrategy, is_semi=True, model_names={"none": "unet_depth_guider_v4", "resnet": "resnet_depth_guider_v4", "depth": "unet_depth_guider_v4", "dinov3": "unet_depth_guider_v4"}, in_chns="metadata"),
+    "mt_depth_guider_gan_v1": _spec("mt_depth_guider_gan_v1", MTDepthGuiderGANV1Strategy, is_semi=True, model_names={"none": "unet_depth_guider_v4", "resnet": "resnet_depth_guider_v4", "depth": "unet_depth_guider_v4", "dinov3": "unet_depth_guider_v4"}, in_chns="metadata"),
+    "mt_depth_guider_gan_v2": _spec("mt_depth_guider_gan_v2", MTDepthGuiderGANV2Strategy, is_semi=True, model_names={"none": "unet_depth_guider_v4", "resnet": "resnet_depth_guider_v4", "depth": "unet_depth_guider_v4", "dinov3": "unet_depth_guider_v4"}, in_chns="metadata"),
+    "mt_depth_guider_gan_v3": _spec("mt_depth_guider_gan_v3", MTDepthGuiderGANV3Strategy, is_semi=True, model_names={"none": "unet_depth_guider_v4", "resnet": "resnet_depth_guider_v4", "depth": "unet_depth_guider_v4", "dinov3": "unet_depth_guider_v4"}, in_chns="metadata"),
     "mt_depth_guider_proto_v1": _spec("mt_depth_guider_proto_v1", MTDepthGuiderProtoV1Strategy, is_semi=True, model_suffix="depth_guider_proto_v1", in_chns="metadata"),
     "mt_depth_guider_proto_teacher_v2": _spec("mt_depth_guider_proto_teacher_v2", MTDepthGuiderProtoTeacherV2Strategy, is_semi=True, model_suffix="depth_guider_proto_v1", in_chns="metadata"),
     "mt_depth_guider_proto_teacher_v3": _spec("mt_depth_guider_proto_teacher_v3", MTDepthGuiderProtoTeacherV3Strategy, is_semi=True, model_suffix="depth_guider_proto_v1", in_chns="metadata"),

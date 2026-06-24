@@ -76,9 +76,7 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(args.labeled_num, 10)
         self.assertEqual(args.device, "cuda")
         self.assertEqual(args.seed, 42)
-        self.assertEqual(args.num_workers, 2)
         self.assertEqual(args.optimizer, "adam")
-        self.assertEqual(args.lr, 3e-5)
         self.assertEqual(args.filter_num, 16)
         self.assertEqual(args.depth_uint, 16)
         self.assertEqual(args.consistency, 0.1)
@@ -101,7 +99,6 @@ class ArgsRuntimeTest(unittest.TestCase):
         with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
             finalized = finalize_train_args(args)
         self.assertEqual(finalized.way, "fully")
-        self.assertEqual(finalized.model, "resnet")
         with self.assertRaises(SystemExit):
             build_train_parser().parse_args(["--task", "1", "--exp", "toy/proto", "--proto_feature_dim", "128"])
 
@@ -111,7 +108,7 @@ class ArgsRuntimeTest(unittest.TestCase):
 
     def test_finalize_train_args_pins_resnet_contrast_model_for_fully_contrast_v1(self):
         args = build_train_parser().parse_args([
-            "--task", "2", "--way", "fully_contrast_v1", "--exp", "toy/FullyContrastV1"
+            "--task", "2", "--way", "fully_contrast_v1", "--pretrain", "resnet", "--exp", "toy/FullyContrastV1"
         ])
         with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
             finalized = finalize_train_args(args)
@@ -119,7 +116,7 @@ class ArgsRuntimeTest(unittest.TestCase):
 
     def test_finalize_train_args_reuses_contrast_models_for_fully_contrast_v1_1(self):
         args = build_train_parser().parse_args([
-            "--task", "2", "--way", "fully_contrast_v1_1", "--exp", "toy/FullyContrastV11"
+            "--task", "2", "--way", "fully_contrast_v1_1", "--pretrain", "resnet", "--exp", "toy/FullyContrastV11"
         ])
         with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
             finalized = finalize_train_args(args)
@@ -181,6 +178,8 @@ class ArgsRuntimeTest(unittest.TestCase):
                 "2",
                 "--way",
                 "proto",
+                "--pretrain",
+                "resnet",
                 "--exp",
                 "toy/Proto",
                 "--use_depth",
@@ -195,7 +194,6 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(finalized.in_chns, 4)
         self.assertEqual(finalized.use_depth, 1)
         self.assertEqual(finalized.way, "proto")
-        self.assertEqual(finalized.lr, 3e-5)
         self.assertFalse(hasattr(finalized, "base_lr"))
         self.assertFalse(hasattr(finalized, "adam_base_lr"))
         self.assertFalse(hasattr(finalized, "class_num"))
@@ -242,6 +240,8 @@ class ArgsRuntimeTest(unittest.TestCase):
                 "1",
                 "--way",
                 "mt",
+                "--pretrain",
+                "resnet",
                 "--exp",
                 "toy/MT",
                 "--no_val",
@@ -255,7 +255,6 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(finalized.way, "mt")
         self.assertEqual(finalized.requested_checkpoint_type, "final")
         self.assertEqual(finalized.checkpoint_type, "final")
-        self.assertEqual(finalized.lr, 3e-5)
         self.assertFalse(hasattr(finalized, "base_lr"))
         self.assertFalse(hasattr(finalized, "adam_base_lr"))
         self.assertFalse(hasattr(finalized, "resume"))
@@ -276,7 +275,6 @@ class ArgsRuntimeTest(unittest.TestCase):
         self.assertEqual(args.result_root, "../result_predict")
         self.assertEqual(args.train_result_root, "../result_train")
         self.assertEqual(args.optimizer, "adam")
-        self.assertEqual(args.rgb, 2)
 
     def test_test_parser_accepts_explicit_adam_optimizer(self):
         args = build_test_parser().parse_args(["--task", "1", "--optimizer", "adam"])

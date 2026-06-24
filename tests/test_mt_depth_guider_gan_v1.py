@@ -4,7 +4,7 @@ import unittest
 import torch
 
 from strategies import STRATEGY_REGISTRY
-from strategies.semi_mt_depth_guider_gan_v1 import MTDepthGuiderV4GANStrategy
+from strategies.semi_mt_depth_guider_gan_v1 import MTDepthGuiderGANV1Strategy
 
 
 class DummyGuiderModel(torch.nn.Module):
@@ -17,7 +17,7 @@ class DummyGuiderModel(torch.nn.Module):
         return self.conv(x)
 
 
-class MTDepthGuiderV4GANStrategyTest(unittest.TestCase):
+class MTDepthGuiderGANV1StrategyTest(unittest.TestCase):
     def setUp(self):
         self.args = Namespace(
             consistency=0.1,
@@ -30,17 +30,17 @@ class MTDepthGuiderV4GANStrategyTest(unittest.TestCase):
             consistency_rampup=150,
             consistency_rampup_div=200,
             consistency_start_iters=0,
-            way="mt_depth_guider_v4_gan",
+            way="mt_depth_guider_gan_v1",
             gan_loss_weight=0.01,
             gan_lr=1e-4,
         )
         self.model = DummyGuiderModel()
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.1)
         self.device = torch.device("cpu")
-        self.strategy = MTDepthGuiderV4GANStrategy(self.args, self.model, self.optimizer, self.device)
+        self.strategy = MTDepthGuiderGANV1Strategy(self.args, self.model, self.optimizer, self.device)
 
     def test_strategy_registered(self):
-        self.assertIn("mt_depth_guider_v4_gan", STRATEGY_REGISTRY)
+        self.assertIn("mt_depth_guider_gan_v1", STRATEGY_REGISTRY)
 
     def test_compute_loss_returns_mt_and_gan_terms(self):
         batch = {

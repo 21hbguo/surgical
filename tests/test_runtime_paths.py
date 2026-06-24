@@ -49,6 +49,8 @@ class RuntimePathsTest(unittest.TestCase):
                 "toy/MT",
                 "--way",
                 "mt",
+                "--pretrain",
+                "resnet",
                 "--labeled_num",
                 "10",
                 "--lr",
@@ -84,6 +86,8 @@ class RuntimePathsTest(unittest.TestCase):
                 "1e-4",
                 "--way",
                 "fully",
+                "--pretrain",
+                "resnet",
                 "--sampling",
                 "interval",
             ]

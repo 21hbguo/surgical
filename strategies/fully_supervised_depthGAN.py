@@ -1,3 +1,7 @@
+"""全监督 DepthGAN：在全部样本都有真实标签时，用 label-depth 与 pred-depth 对抗约束分割结构。
+这个策略不存在未标注伪标签不稳定的问题，因此 GAN 可以直接作用在全 batch。
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

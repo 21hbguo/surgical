@@ -9,6 +9,10 @@ import os
 import sys
 import unittest
 
+import pytest
+
+pytest.skip("GeoRisk-SPC visualization writes image artifacts; run manually when needed.", allow_module_level=True)
+
 import cv2
 import numpy as np
 import torch

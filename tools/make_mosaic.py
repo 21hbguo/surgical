@@ -17,7 +17,7 @@ OUTPUT_DIR = Path("/home/guo/project/ssl4mis/data/test2")
 PRED_DIRS = [
     (BASE / "Fully" / "100_labeled_lr1e-4_unet", "Fully"),
     (BASE / "FullyDepthGAN_ganLR1e-5" / "100_labeled_lr1e-4_unet_depth1C", "FullyDepthGAN"),
-    (BASE / "MT_depth_guider_v4_gan" / "40_labeled_lr1e-4_s_unet_depth_guider_v4_depth1C", "MT_depth_guider"),
+    (BASE / "MT_depth_guider_gan_v1" / "40_labeled_lr1e-4_s_unet_depth_guider_v4_depth1C", "MT_depth_guider"),
 ]
 COL_NAMES = ["Image", "Label"] + [c[1] for c in PRED_DIRS]
 SAMPLES_PER_ROW = 10

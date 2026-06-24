@@ -68,6 +68,7 @@ class TrainEntrypointStructureTest(unittest.TestCase):
                 lr_warmup_ratio=0.0,
                 lr_min_ratio=0.0,
                 poly_power=0.9,
+                early_stopping=0.0,
             )
 
             train_core.Trainer(
@@ -99,7 +100,7 @@ class TrainEntrypointStructureTest(unittest.TestCase):
             def get_state_dict(self):
                 return {"w": torch.tensor([1.0])}
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = Namespace(snapshot_path=tmpdir, max_iterations=1, val_iter=1, lr_scheduler="poly", lr_warmup_iters=0, lr=0.1, lr_warmup_ratio=0.0, lr_min_ratio=0.0, poly_power=0.9)
+            args = Namespace(snapshot_path=tmpdir, max_iterations=1, val_iter=1, lr_scheduler="poly", lr_warmup_iters=0, lr=0.1, lr_warmup_ratio=0.0, lr_min_ratio=0.0, poly_power=0.9, early_stopping=0.0)
             trainer = train_core.Trainer(args, DummyStrategy(), DummyLoader(), DummyLoader(), torch.device("cpu"), labeled_slice=1)
             trainer._save_model("final")
             final_path = os.path.join(tmpdir, "model_final.pth")
