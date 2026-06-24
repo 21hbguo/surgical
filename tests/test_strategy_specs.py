@@ -36,6 +36,7 @@ class StrategySpecsTest(unittest.TestCase):
     def test_strategy_names_are_exposed_from_central_specs(self):
         names = get_strategy_names()
         self.assertIn("fully", names)
+        self.assertIn("fully_supervised_depthgan", names)
         self.assertIn("mt_depth_teacher_v1", names)
         self.assertIn("mt_depth_guider_v1_2", names)
         self.assertIn("mt_depth_guider_v4", names)
@@ -51,6 +52,9 @@ class StrategySpecsTest(unittest.TestCase):
         masking_spec = get_strategy_spec("fully_rgb_masking_depth_v1")
         self.assertFalse(masking_spec.is_semi)
         self.assertEqual(masking_spec.in_chns, "metadata")
+        depthgan_spec = get_strategy_spec("fully_supervised_depthgan")
+        self.assertFalse(depthgan_spec.is_semi)
+        self.assertEqual(depthgan_spec.in_chns, "metadata")
 
     def test_resolve_strategy_input_settings_uses_metadata_override_when_requested(self):
         resolved = resolve_strategy_input_settings(

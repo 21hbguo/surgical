@@ -16,6 +16,7 @@ class DummyStrategy(BaseTrainingStrategy):
 class StrategyRegistryTest(unittest.TestCase):
     def test_registry_maps_names_directly_to_classes(self):
         strategy_cls = STRATEGY_REGISTRY["mt"]
+        self.assertIn("fully_supervised_depthgan", STRATEGY_REGISTRY)
         self.assertIn("fully_contrast_v1", STRATEGY_REGISTRY)
         self.assertIn("fully_contrast_v1_1", STRATEGY_REGISTRY)
         self.assertIn("fully_rgb_masking_depth_v1", STRATEGY_REGISTRY)

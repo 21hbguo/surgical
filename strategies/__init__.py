@@ -6,6 +6,7 @@ from .fully_contrast_v1 import FullyContrastV1Strategy
 from .fully_contrast_v1_1 import FullyContrastV11Strategy
 from .fully_rgb_masking_depth_v1 import FullyRGBMaskingDepthV1Strategy
 from .fully_supervised import FullySupervisedStrategy
+from .fully_supervised_depthGAN import FullySupervisedDepthGANStrategy
 from .fully_depth_pretrain_v1 import FullyDepthPretrainStrategy
 from .fully_ternaus import TernausNet16Strategy
 from .semi_depth_guided_mt import DepthGuidedMTStrategy
@@ -40,6 +41,7 @@ __all__ = [
     "STRATEGY_REGISTRY",
     "create_strategy",
     "FullySupervisedStrategy",
+    "FullySupervisedDepthGANStrategy",
     "FullyRGBMaskingDepthV1Strategy",
     "FullyDepthPretrainStrategy",
     "FullyContrastV1Strategy",
