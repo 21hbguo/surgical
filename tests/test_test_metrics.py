@@ -40,6 +40,11 @@ class TestRequestedFolds(unittest.TestCase):
         args = parser.parse_args(["--task", "1"])
         self.assertEqual(args.distance_metrics, 0)
 
+    def test_post_resize_default_label_to_pred(self):
+        parser = test_core.build_test_feature_parser()
+        args = parser.parse_args(["--task", "1"])
+        self.assertEqual(args.post_resize, "label_to_pred")
+
     def test_test_module_outsources_visualization_and_export_details(self):
         project_root = Path(__file__).resolve().parents[1]
         test_source = (project_root / "core" / "test.py").read_text(encoding="utf-8")
@@ -368,6 +373,7 @@ class TestInferenceConsistency(unittest.TestCase):
             feat_vis_alpha=0.45,
             feat_vis_target_class=-1,
             way="fully",
+            post_resize="label_to_pred",
         )
         batch = {
             "image": [
@@ -424,6 +430,46 @@ class TestInferenceConsistency(unittest.TestCase):
             self.assertAlmostEqual(record["Acc"], exp["Acc"], places=6)
             self.assertNotIn("HD95", record)
             self.assertNotIn("ASD", record)
+
+    def test_post_resize_controls_metric_resize_direction(self):
+        batch = {
+            "image": [torch.zeros((1, 2, 2), dtype=torch.float32)],
+            "label": [torch.zeros((4, 4), dtype=torch.int64)],
+            "original_label": [torch.tensor([[1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], dtype=torch.int64)],
+            "case": ["case_resize"],
+            "original_image": [None],
+        }
+
+        class Loader:
+            def __iter__(self):
+                yield batch
+
+        class Model(torch.nn.Module):
+            def forward(self, x):
+                logits = torch.zeros((1, 2, 2, 2), dtype=torch.float32, device=x.device)
+                logits[:, 1, 0, 0] = 2.0
+                return logits
+
+        args = SimpleNamespace(
+            feat_vis=0,
+            conf_vis=0,
+            rgb=0,
+            distance_metrics=0,
+            num_classes=2,
+            feat_vis_max_cases=10,
+            feat_vis_layer="",
+            feat_vis_all_layers=1,
+            feat_vis_max_layers=0,
+            feat_vis_alpha=0.45,
+            feat_vis_target_class=-1,
+            way="fully",
+            post_resize="label_to_pred",
+        )
+        label_to_pred_records = test_core.inference(args, Model(), Loader(), torch.device("cpu"))
+        args.post_resize = "pred_to_label"
+        pred_to_label_records = test_core.inference(args, Model(), Loader(), torch.device("cpu"))
+        self.assertEqual(label_to_pred_records[0]["Dice"], 1.0)
+        self.assertLess(pred_to_label_records[0]["Dice"], 1.0)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ class StrategySpecsTest(unittest.TestCase):
         self.assertIn("mt_depth_teacher_v1", names)
         self.assertIn("mt_depth_guider_v1_2", names)
         self.assertIn("mt_depth_guider_v4", names)
+        self.assertIn("mt_depth_guider_v4_gan", names)
         self.assertIn("mt_depth_guider_proto_teacher_v2", names)
         self.assertIn("mt_depth_guider_proto_teacher_v3", names)
         self.assertNotIn("mt_depth_guider_proto_v2", names)
@@ -112,6 +113,10 @@ class StrategySpecsTest(unittest.TestCase):
         )
         self.assertEqual(
             resolve_strategy_default_model_name("mt_depth_guider_v4", "resnet"),
+            "resnet_depth_guider_v4",
+        )
+        self.assertEqual(
+            resolve_strategy_default_model_name("mt_depth_guider_v4_gan", "resnet"),
             "resnet_depth_guider_v4",
         )
         self.assertEqual(

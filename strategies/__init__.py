@@ -15,6 +15,7 @@ from .semi_dycon import DyConStrategy
 from .semi_mean_teacher import MeanTeacherStrategy
 from .semi_mean_teacher_text_v1 import MeanTeacherTextV1Strategy
 from .semi_mt_depth_teacher_v1 import MTDepthTeacherV1Strategy
+from .semi_mt_depth_guider_gan_v1 import MTDepthGuiderV4GANStrategy
 from .semi_mt_depth_guider_v1 import MTDepthGuiderV1Strategy
 from .semi_mt_depth_guider_v2 import MTDepthGuiderV2Strategy
 from .semi_mt_depth_guider_v3 import MTDepthGuiderV3Strategy
@@ -49,6 +50,7 @@ __all__ = [
     "MeanTeacherTextV1Strategy",
     "MeanTeacherContrastV1Strategy",
     "MTDepthTeacherV1Strategy",
+    "MTDepthGuiderV4GANStrategy",
     "MTDepthGuiderV1Strategy",
     "MTDepthGuiderV2Strategy",
     "MTDepthGuiderV3Strategy",

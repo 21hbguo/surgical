@@ -71,7 +71,7 @@ def finalize_test_args(args):
 
 def format_args_for_logging(args):
     data = vars(args)
-    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping", "retrain"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "predict_result_root"] if k in data}}, indent=2, width=100)
+    return pprint.pformat({"common": {k: data[k] for k in ["root_path", "task", "exp", "way", "model", "pretrain", "num_classes", "num_folds", "in_chns", "use_depth", "depth_uint", "normalize", "device", "seed"]}, "train": {k: data[k] for k in ["optimizer", "lr", "max_iterations", "val_iter", "sampling", "snapshot_path", "train_result_root", "amp", "compile", "early_stopping", "retrain"] if k in data}, "test": {k: data[k] for k in ["requested_checkpoint_type", "checkpoint_type", "batch_size", "post_resize", "predict_result_root"] if k in data}}, indent=2, width=100)
 
 
 class StrategyArgumentParser(argparse.ArgumentParser):
@@ -138,17 +138,18 @@ def add_common_args(parser, result_root_default, test_mode=False):
     parser.add_argument("--consistency_rampup_div", type=int, default=200)
     parser.add_argument("--consistency_start_iters", type=int, default=1000)
     parser.add_argument("--ema_decay", type=float, default=0.99)
-
-
-def add_train_args(parser):
+    parser.add_argument("--data-format", type=str, default="h5", choices=["png", "h5"], help="data storage format.")
     parser.add_argument("--labeled_num", type=float, default=10, help="Labeled percentage. Examples: 0.1=0.1%%, 1=1%%, 10=10%%.")
     parser.add_argument("--labeled_bs", type=int, default=2, help="Number of labeled samples per training batch.")
     parser.add_argument("--unlabeled_bs", type=int, default=2, help="Number of unlabeled samples per training batch.")
     parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"], help="Train subset sampling rule when labeled_num selects only part of the train set.")
     parser.add_argument("--max_iterations", type=int, default=30000, help="Total training iterations.")
+    parser.add_argument("--grad_clip", type=float, default=1.0)
+    parser.add_argument("--no_val", action="store_true", default=False)
+
+def add_train_args(parser):
     parser.add_argument("--val_iter", type=int, default=400, help="Run validation every N iterations.")
     parser.add_argument("--poly_power", type=float, default=0.9, help="Power factor for poly learning-rate decay.")
-    parser.add_argument("--grad_clip", type=float, default=1.0, help="Gradient clipping max norm. 0 disables clipping.")
     parser.add_argument("--lr_scheduler", type=str, default="poly", help="Learning-rate scheduler name.")
     parser.add_argument("--lr_warmup_iters", type=int, default=0, help="Warmup iterations before the main scheduler starts.")
     parser.add_argument("--lr_warmup_ratio", type=float, default=0, help="Initial warmup lr ratio relative to base lr.")
@@ -159,26 +160,17 @@ def add_train_args(parser):
     parser.add_argument("--amp", action="store_true", default=True, help="Enable automatic mixed precision training")
     parser.add_argument("--compile", action="store_true", default=False, help="Enable torch.compile for model acceleration")
     parser.add_argument("--debug", action="store_true", default=False, help="Run with reduced train and val subsets for quick debugging.")
-    parser.add_argument("--no_val", action="store_true", default=False, help="Disable validation and save only the final checkpoint.")
     parser.add_argument("--early_stopping", type=float, default=0.3, help="Early stopping patience as fraction of max_iterations (e.g. 0.3). 0=disabled.")
     parser.add_argument("--pth", type=str, default=None, choices=["best", "final", "latest"], help=argparse.SUPPRESS)
-    parser.add_argument("--data-format", type=str, default="h5", choices=["png", "h5"], help="Training data storage format.")
 
 
 def add_test_args(parser):
-    parser.add_argument("--labeled_num", type=float, default=10, help="Labeled percentage. Examples: 0.1=0.1%%, 1=1%%, 10=10%%.")
-    parser.add_argument("--labeled_bs", type=int, default=2)
-    parser.add_argument("--unlabeled_bs", type=int, default=2)
-    parser.add_argument("--sampling", type=str, default="interval", choices=["none", "interval"])
-    parser.add_argument("--max_iterations", type=int, default=30000)
-    parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--checkpoint-type", "--pth", "--pth_type", dest="requested_checkpoint_type", type=str, default="best", choices=["best", "final", "latest"])
     parser.add_argument("--rgb", type=int, default=4, choices=[0, 1, 2, 3, 4], help="0=off, 1=pred overlay, 2=label/pred side-by-side, 3=label only, 4=pred mask only")
     parser.add_argument("--distance_metrics", type=int, default=0, choices=[0, 1])
-    parser.add_argument("--no_val", action="store_true", default=False)
+    parser.add_argument("--post_resize", type=str, default="label_to_pred", choices=["label_to_pred", "pred_to_label"])
     parser.add_argument("--train_result_root", type=str, default="../result_train", help="train checkpoint root used by test")
-    parser.add_argument("--data-format", type=str, default="h5", choices=["png", "h5"], help="Test data storage format.")
 
 
 def build_train_parser():

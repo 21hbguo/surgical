@@ -263,11 +263,7 @@ class GeoRiskSPCStrategyV2(BaseTrainingStrategy):
         bd_loss = torch.tensor(0.0, device=self.device)
         consistency_weight = self._get_consistency_weight(iter_num)
 
-        clean_unlabeled = output_clean[self.labeled_bs:]
         clean_unlabeled_soft = clean_soft[self.labeled_bs:]
-        H, W = clean_unlabeled.shape[2:]
-        M_r_up = F.interpolate(M_r, size=(H, W), mode='nearest')
-        M_l_up = F.interpolate(M_l, size=(H, W), mode='nearest')
 
         if iter_num >= self.consistency_start_iters and B_u > 0 and teacher_pred is not None:
             clean_teacher_consistency = torch.mean((clean_unlabeled_soft - teacher_pred) ** 2)
@@ -276,7 +272,6 @@ class GeoRiskSPCStrategyV2(BaseTrainingStrategy):
                 pert_unlabeled_soft = torch.softmax(output_pert[self.labeled_bs:], dim=1)
                 pert_teacher_consistency = torch.mean((pert_unlabeled_soft - teacher_pred) ** 2)
 
-        else:
             cons_loss = clean_teacher_consistency + pert_teacher_consistency
 
         total_loss = (supervised_loss

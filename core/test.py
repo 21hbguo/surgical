@@ -419,7 +419,12 @@ def inference(
                     alpha=float(args.conf_vis_alpha),
                 )
 
-            pred_for_metrics = _resize_mask_to_shape(pred, label_np.shape)
+            if args.post_resize == "pred_to_label":
+                pred_for_metrics = _resize_mask_to_shape(pred, label_np.shape)
+                label_for_metrics = label_np
+            else:
+                pred_for_metrics = pred
+                label_for_metrics = _resize_mask_to_shape(label_np, pred.shape)
             seq = None
             for token in re.split(r'[_-]', str(case)):
                 if token.isdigit():
@@ -430,7 +435,7 @@ def inference(
                     seq = int(match.group())
                     break
             for cls in range(1, args.num_classes):
-                metrics = calculate_metric_percase(pred_for_metrics == cls, label_np == cls, distance_metrics=bool(args.distance_metrics))
+                metrics = calculate_metric_percase(pred_for_metrics == cls, label_for_metrics == cls, distance_metrics=bool(args.distance_metrics))
                 metrics['Case'] = case
                 metrics['Class'] = cls
                 metrics['Fold'] = fold_label
