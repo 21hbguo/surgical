@@ -102,6 +102,13 @@ class ArgsRuntimeTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             build_train_parser().parse_args(["--task", "1", "--exp", "toy/proto", "--proto_feature_dim", "128"])
 
+    def test_finalize_args_rejects_zero_folds(self):
+        _write_task_json(self.root_path, task=3, num_classes=2, n_folds=0)
+        args = build_train_parser().parse_args(["--task", "3", "--exp", "toy/Fully"])
+        with patch("core.args.infer_root_path_from_exp", return_value=self.root_path):
+            with self.assertRaisesRegex(ValueError, "n_folds=0"):
+                finalize_train_args(args)
+
     def test_test_parser_defaults_labeled_num_to_ten_percent(self):
         args = build_test_parser().parse_args(["--task", "1"])
         self.assertEqual(args.labeled_num, 10)

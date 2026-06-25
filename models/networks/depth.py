@@ -131,6 +131,18 @@ class DepthUNet_Base(nn.Module):
         return out
 
 
+class DepthUNet_RDNet(DepthUNet_Base):
+    def forward(self, x):
+        e1, e2, e3, e4, e5 = self.encoder(x)
+        d5 = self.decoder5(e5)
+        d4 = self.decoder4(torch.cat((d5, e4), dim=1))
+        d3 = self.decoder3(torch.cat((d4, e3), dim=1))
+        d2 = self.decoder2(torch.cat((d3, e2), dim=1))
+        d1 = self.decoder1(torch.cat((d2, e1), dim=1))
+        out = self.outconv(d1)
+        return out, e5
+
+
 class DepthUNet_DepthGuiderV1(nn.Module):
     def __init__(self, in_chns, class_num, filter_num=32, variant='resnet34', dropout=0.1, pretrain_root='../pre_train_ckp/', load_encoder_pretrained=True):
         super().__init__()

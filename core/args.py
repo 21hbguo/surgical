@@ -33,6 +33,8 @@ def _finalize_common_args(args):
         args.exp = add_normalize_suffix(args.exp, args.normalize)
     args.num_classes = get_num_classes_from_path(args.root_path, args.task)
     args.num_folds = get_n_folds_from_path(args.root_path, args.task)
+    if args.num_folds == 0:
+        raise ValueError(f"n_folds=0 in {args.root_path}/task{args.task}.json")
     if args.model is None:
         args.model = resolve_default_model_name(args.way, args.pretrain)
     args.pretrain_root = resolve_runtime_path(args.pretrain_root)

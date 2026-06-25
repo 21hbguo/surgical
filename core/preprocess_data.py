@@ -12,8 +12,8 @@ parser.add_argument("--input_dir", type=str, required=True)
 parser.add_argument("--output_dir", type=str, required=True)
 parser.add_argument("--skip_names", type=str, nargs="*", default=[])
 parser.add_argument("--num_workers", type=int, default=8)
-parser.add_argument("--resize_h", type=int, default=0)
-parser.add_argument("--resize_w", type=int, default=0)
+parser.add_argument("--resize_h", type=int, default=224)
+parser.add_argument("--resize_w", type=int, default=224)
 args = parser.parse_args()
 input_dir = Path(args.input_dir).resolve()
 output_dir = Path(args.output_dir).resolve()
@@ -64,6 +64,8 @@ def process_one(src_path_str, input_dir_str, output_dir_str, resize_h, resize_w)
             arr = arr.astype(np.float32) / 255.0
         elif arr.dtype == np.uint16:
             arr = arr.astype(np.float32) / 65535.0
+    if is_label and arr.ndim == 3 and arr.shape[-1] == 3:
+        arr = arr[:, :, 0]
     if arr.ndim == 2:
         arr = arr[None, ...]
     elif arr.ndim == 3 and arr.shape[-1] in (1, 3):

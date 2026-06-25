@@ -326,6 +326,13 @@ class UNet_Base(nn.Module):
         return output
 
 
+class UNet_RDNet(UNet_Base):
+    def forward(self, x):
+        feature = self.encoder(x)
+        output = self.decoder(feature)
+        return output, feature[4]
+
+
 class UNet_DepthGuiderV1(nn.Module):
     def __init__(self, in_chns, class_num, filter_num=16):
         super().__init__()

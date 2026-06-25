@@ -26,7 +26,7 @@ from utils.losses import (
 )
 
 
-class RDNetStrategy(BaseTrainingStrategy):
+class RDNetV1Strategy(BaseTrainingStrategy):
     def __init__(self, args, model, optimizer, device, scaler=None):
         super().__init__(args, model, optimizer, device, scaler=scaler)
         self._enable_ema_support()

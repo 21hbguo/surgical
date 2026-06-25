@@ -10,7 +10,8 @@ from .fully_supervised_depthGAN import FullySupervisedDepthGANStrategy
 from .fully_depth_pretrain_v1 import FullyDepthPretrainStrategy
 from .fully_ternaus import TernausNet16Strategy
 from .semi_depth_guided_mt import DepthGuidedMTStrategy
-from .semi_rdnet import RDNetStrategy
+from .semi_rdnet_v1 import RDNetV1Strategy
+from .semi_rdnet_v2 import RDNetV2Strategy
 from .semi_dycon import DyConStrategy
 from .semi_mean_teacher import MeanTeacherStrategy
 from .semi_mean_teacher_text_v1 import MeanTeacherTextV1Strategy
@@ -69,7 +70,8 @@ __all__ = [
     "DyConStrategy",
     "W2SStrategy",
     "DepthGuidedMTStrategy",
-    "RDNetStrategy",
+    "RDNetV1Strategy",
+    "RDNetV2Strategy",
     "DFormerv2FullyStrategy",
     "OnlyDepthInputStrategy",
     "SegMatchStrategy",
