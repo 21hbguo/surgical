@@ -159,7 +159,7 @@ def add_train_args(parser):
     parser.add_argument("--use_checkpoint", action="store_true", default=False, help="Enable model checkpointing features supported by the model implementation.")
     parser.add_argument("--retrain", action="store_true", default=False, help="Retrain even when the target snapshot directory already contains completed checkpoints.")
     parser.add_argument("--freeze", action="store_true", default=False, help="Freeze supported pretrained backbone parameters before training.")
-    parser.add_argument("--amp", action="store_true", default=True, help="Enable automatic mixed precision training")
+    parser.add_argument("--amp", action="store_true", default=False, help="Enable automatic mixed precision training")
     parser.add_argument("--compile", action="store_true", default=False, help="Enable torch.compile for model acceleration")
     parser.add_argument("--debug", action="store_true", default=False, help="Run with reduced train and val subsets for quick debugging.")
     parser.add_argument("--early_stopping", type=float, default=0.3, help="Early stopping patience as fraction of max_iterations (e.g. 0.3). 0=disabled.")
