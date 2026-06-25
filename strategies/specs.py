@@ -87,6 +87,7 @@ def _spec(
 STRATEGY_SPECS = {
     "fully": _spec("fully", FullySupervisedStrategy, is_semi=False, model_suffix=""),
     "fully_depthgan": _spec("fully_depthgan", FullySupervisedDepthGANStrategy, is_semi=False, model_suffix="", in_chns="metadata"),
+    "fully_supervised_depthgan": _spec("fully_supervised_depthgan", FullySupervisedDepthGANStrategy, is_semi=False, model_suffix="", in_chns="metadata"),
     "fully_reg": _spec("fully_reg", FullyRegSupervisedStrategy, is_semi=False, model_suffix=""),
     "fully_rgb_masking_depth_v1": _spec("fully_rgb_masking_depth_v1", FullyRGBMaskingDepthV1Strategy, is_semi=False, model_suffix="", in_chns="metadata"),
     "fully_depth_pretrain_v1": _spec("fully_depth_pretrain_v1", FullyDepthPretrainStrategy, is_semi=False, model_suffix="depth_pretrain"),

@@ -76,8 +76,10 @@ class RDNetV2Strategy(BaseTrainingStrategy):
 
     def _dpa_augment(self, depth_map, images_s, pred_u, iter_num):
         N, _, H, W = depth_map.size()
-        h_patch = random.choice([40, 10, 20])
-        w_patch = random.choice([40, 10, 20])
+        # h_patch = random.choice([40, 10, 20])
+        # w_patch = random.choice([40, 10, 20])
+        h_patch = random.choice([28, 7, 14])
+        w_patch = random.choice([28, 7, 14])
         depth_patches = depth_map.unfold(2, h_patch, h_patch).unfold(3, w_patch, w_patch)
         patch_variance = depth_patches.var(dim=(-2, -1))
         hardness_scores = patch_variance.flatten(1)
