@@ -21,7 +21,7 @@ class DINOv3UNet_Base(_DINOv3BackboneMixin, ResNetUNet_Base):
 
 
 class DINOv3UNet_RDNet(_DINOv3BackboneMixin, ResNetUNet_RDNet):
-    def __init__(self, in_chns, class_num, filter_num=32, variant="resnet34", dropout=0.0, pretrain_root="../pre_train_ckp/", dinov3_repo_dir="../dinov3", dinov3_weights="dinov3_vits16_pretrain_lvd1689m-08c60483.pth"):
+    def __init__(self, in_chns, class_num=1, filter_num=32, variant="resnet34", dropout=0.0, pretrain_root="../pre_train_ckp/", dinov3_repo_dir="../dinov3", dinov3_weights="dinov3_vits16_pretrain_lvd1689m-08c60483.pth"):
         super().__init__(in_chns, class_num, filter_num, variant, dropout, pretrain_root, load_encoder_pretrained=False)
         self._swap_encoder(in_chns, pretrain_root, dinov3_repo_dir, dinov3_weights)
 

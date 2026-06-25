@@ -326,7 +326,49 @@ class UNet_Base(nn.Module):
         return output
 
 
-class UNet_RDNet(UNet_Base):
+class Decoder_RDNet(nn.Module):
+    def __init__(self, params, filter_num=16):
+        super(Decoder_RDNet, self).__init__()
+        self.params = params
+        self.in_chns = self.params['in_chns']
+        self.ft_chns = self.params.get('feature_chns', [filter_num * (2 ** i) for i in range(5)])
+        self.bilinear = self.params['bilinear']
+        assert (len(self.ft_chns) == 5)
+        self.up1 = UpBlock(self.ft_chns[4], self.ft_chns[3], self.ft_chns[3], dropout_p=0.0)
+        self.up2 = UpBlock(self.ft_chns[3], self.ft_chns[2], self.ft_chns[2], dropout_p=0.0)
+        self.up3 = UpBlock(self.ft_chns[2], self.ft_chns[1], self.ft_chns[1], dropout_p=0.0)
+        self.up4 = UpBlock(self.ft_chns[1], self.ft_chns[0], self.ft_chns[0], dropout_p=0.0)
+        self.out_conv = nn.Conv2d(self.ft_chns[0], 1, kernel_size=3, padding=1)
+
+    def forward(self, feature):
+        x0 = feature[0]
+        x1 = feature[1]
+        x2 = feature[2]
+        x3 = feature[3]
+        x4 = feature[4]
+        x = self.up1(x4, x3)
+        x = self.up2(x, x2)
+        x = self.up3(x, x1)
+        x = self.up4(x, x0)
+        output = torch.sigmoid(self.out_conv(x))
+        return output
+
+
+class UNet_RDNet(nn.Module):
+    def __init__(self, in_chns, class_num=1, filter_num=16):
+        super(UNet_RDNet, self).__init__()
+        params = {
+            'in_chns': in_chns,
+            'dropout': [0, 0, 0, 0, 0],
+            'class_num': 1,
+            'bilinear': False,
+            'acti_func': 'relu',
+            'filter_num': filter_num
+        }
+        self.params = params
+        self.encoder = Encoder(params, filter_num)
+        self.decoder = Decoder_RDNet(params, filter_num)
+
     def forward(self, x):
         feature = self.encoder(x)
         output = self.decoder(feature)

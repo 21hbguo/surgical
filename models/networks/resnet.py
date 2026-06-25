@@ -304,6 +304,16 @@ class ResNetUNet_Base(nn.Module):
 
 
 class ResNetUNet_RDNet(ResNetUNet_Base):
+    def __init__(self, in_chns, class_num=1, filter_num=32, variant='resnet34', dropout=0.0, pretrain_root='../pre_train_ckp/', load_encoder_pretrained=True):
+        super().__init__(in_chns, class_num, filter_num, variant, dropout, pretrain_root, load_encoder_pretrained)
+        self.params['class_num'] = 1
+        self.outconv = nn.Sequential(
+            ConvBlock(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout2d(dropout),
+            nn.Conv2d(32, 1, 1),
+        )
+        replace_batchnorm2d_with_groupnorm(self)
+
     def forward(self, x):
         e1, e2, e3, e4, e5 = self.encoder(x)
         d5 = self.decoder5(e5)
@@ -311,7 +321,7 @@ class ResNetUNet_RDNet(ResNetUNet_Base):
         d3 = self.decoder3(torch.cat((d4, e3), dim=1))
         d2 = self.decoder2(torch.cat((d3, e2), dim=1))
         d1 = self.decoder1(torch.cat((d2, e1), dim=1))
-        out = self.outconv(d1)
+        out = torch.sigmoid(self.outconv(d1))
         return out, e5
 
 

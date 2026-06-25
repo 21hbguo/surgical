@@ -21,6 +21,9 @@ class ModelSpec:
 _UNET_ARG_MAP = {"in_chns": "in_chns", "class_num": "num_classes", "filter_num": "filter_num"}
 _RESNET_UNET_ARG_MAP = {"in_chns": "in_chns", "class_num": "num_classes", "filter_num": "filter_num", "variant": "resnet_variant", "pretrain_root": "pretrain_root"}
 _DINOV3_UNET_ARG_MAP = {**_RESNET_UNET_ARG_MAP, "dinov3_repo_dir": "dinov3_repo_dir", "dinov3_weights": "dinov3_weights"}
+_UNET_RDNET_ARG_MAP = {"in_chns": "in_chns", "filter_num": "filter_num"}
+_RESNET_RDNET_ARG_MAP = {"in_chns": "in_chns", "filter_num": "filter_num", "variant": "resnet_variant", "pretrain_root": "pretrain_root"}
+_DINOV3_RDNET_ARG_MAP = {**_RESNET_RDNET_ARG_MAP, "dinov3_repo_dir": "dinov3_repo_dir", "dinov3_weights": "dinov3_weights"}
 _DYCON_STATIC_KWARGS = {"scale_factor": DEFAULT_FEATURE_SCALER, "use_aspp": DEFAULT_USE_ASPP}
 _DFORMERV2_ARG_MAP = {"in_chns": "in_chns", "class_num": "num_classes", "pretrain_path": "dformerv2_pretrain_path"}
 _TERNAUS_ARG_MAP = {"in_chns": "in_chns", "class_num": "num_classes", "pretrained": "model_pretrain", "pretrain_root": "pretrain_root"}
@@ -33,7 +36,7 @@ def _with_arg_map(base_arg_map, **extra_arg_map):
 
 MODEL_REGISTRY = {
     "unet": ModelSpec(builder=UNet_Base, arg_map=_UNET_ARG_MAP),
-    "unet_rdnet": ModelSpec(builder=UNet_RDNet, arg_map=_UNET_ARG_MAP),
+    "unet_rdnet": ModelSpec(builder=UNet_RDNet, arg_map=_UNET_RDNET_ARG_MAP),
     "unet_urpc": ModelSpec(builder=UNet_URPC, arg_map=_UNET_ARG_MAP),
     "unet_contrast_v1": ModelSpec(builder=UNet_ContrastV1, arg_map=_with_arg_map(_UNET_ARG_MAP, feature_dim="contrast_feature_dim")),
     "unet_proto": ModelSpec(builder=UNet_proto, arg_map=_with_arg_map(_UNET_ARG_MAP, feature_dim="proto_feature_dim")),
@@ -50,7 +53,7 @@ MODEL_REGISTRY = {
     "unet_depth": ModelSpec(builder=UNet_Depth, arg_map=_UNET_ARG_MAP),
     "unet_depth_pretrain": ModelSpec(builder=UNet_DepthPretrain, arg_map=_UNET_ARG_MAP),
     "resnet": ModelSpec(builder=ResNetUNet_Base, arg_map=_RESNET_UNET_ARG_MAP),
-    "resnet_rdnet": ModelSpec(builder=ResNetUNet_RDNet, arg_map=_RESNET_UNET_ARG_MAP),
+    "resnet_rdnet": ModelSpec(builder=ResNetUNet_RDNet, arg_map=_RESNET_RDNET_ARG_MAP),
     "resnet_contrast_v1": ModelSpec(builder=ResNetUNet_ContrastV1, arg_map=_with_arg_map(_RESNET_UNET_ARG_MAP, feature_dim="contrast_feature_dim")),
     "resnet_urpc": ModelSpec(builder=ResNetUNet_URPC, arg_map=_RESNET_UNET_ARG_MAP),
     "resnet_proto": ModelSpec(builder=ResNetUNet_proto, arg_map=_with_arg_map(_RESNET_UNET_ARG_MAP, feature_dim="proto_feature_dim")),
@@ -68,7 +71,7 @@ MODEL_REGISTRY = {
     "resnet_depth": ModelSpec(builder=ResNetUNet_Depth, arg_map=_RESNET_UNET_ARG_MAP),
     "resnet_depth_pretrain": ModelSpec(builder=ResNetUNet_DepthPretrain, arg_map=_RESNET_UNET_ARG_MAP),
     "depth": ModelSpec(builder=DepthUNet_Base, arg_map=_RESNET_UNET_ARG_MAP),
-    "depth_rdnet": ModelSpec(builder=DepthUNet_RDNet, arg_map=_RESNET_UNET_ARG_MAP),
+    "depth_rdnet": ModelSpec(builder=DepthUNet_RDNet, arg_map=_RESNET_RDNET_ARG_MAP),
     "depth_contrast_v1": ModelSpec(builder=DepthUNet_ContrastV1, arg_map=_with_arg_map(_RESNET_UNET_ARG_MAP, feature_dim="contrast_feature_dim")),
     "depth_urpc": ModelSpec(builder=DepthUNet_URPC, arg_map=_RESNET_UNET_ARG_MAP),
     "depth_proto": ModelSpec(builder=DepthUNet_proto, arg_map=_with_arg_map(_RESNET_UNET_ARG_MAP, feature_dim="proto_feature_dim")),
@@ -80,7 +83,7 @@ MODEL_REGISTRY = {
     "depth_depth": ModelSpec(builder=DepthUNet_Depth, arg_map=_RESNET_UNET_ARG_MAP),
     "depth_depth_pretrain": ModelSpec(builder=DepthUNet_DepthPretrain, arg_map=_RESNET_UNET_ARG_MAP),
     "dinov3": ModelSpec(builder=DINOv3UNet_Base, arg_map=_DINOV3_UNET_ARG_MAP),
-    "dinov3_rdnet": ModelSpec(builder=DINOv3UNet_RDNet, arg_map=_DINOV3_UNET_ARG_MAP),
+    "dinov3_rdnet": ModelSpec(builder=DINOv3UNet_RDNet, arg_map=_DINOV3_RDNET_ARG_MAP),
     "dinov3_urpc": ModelSpec(builder=DINOv3UNet_URPC, arg_map=_DINOV3_UNET_ARG_MAP),
     "dinov3_proto": ModelSpec(builder=DINOv3UNet_proto, arg_map=_with_arg_map(_DINOV3_UNET_ARG_MAP, feature_dim="proto_feature_dim")),
     "dinov3_proto_v1": ModelSpec(builder=DINOv3UNet_proto, arg_map=_with_arg_map(_DINOV3_UNET_ARG_MAP, feature_dim="proto_feature_dim")),
